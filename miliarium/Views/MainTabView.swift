@@ -32,14 +32,122 @@ struct MainTabView: View {
 // MARK: - Sections
 
 private struct HomeSectionView: View {
+    @Environment(ProgressStore.self) private var progressStore
+
+    @State private var showCreateProgress = false
+
     var body: some View {
         NavigationStack {
-            ContentUnavailableView(
-                "Home",
-                systemImage: "house.fill",
-                description: Text("Your dashboard will live here.")
-            )
+            Group {
+                if progressStore.isLoading {
+                    ProgressView()
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else if progressStore.progresses.isEmpty {
+                    ContentUnavailableView {
+                        Label("No progress yet", systemImage: "chart.line.uptrend.xyaxis")
+                    } description: {
+                        Text("Open the Progress menu above or tap below to create one.")
+                    } actions: {
+                        Button("Create progress") {
+                            showCreateProgress = true
+                        }
+                        .buttonStyle(.borderedProminent)
+                    }
+                } else {
+                    homeContent
+                }
+            }
             .navigationTitle("Home")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    progressMenu
+                }
+            }
+            .sheet(isPresented: $showCreateProgress) {
+                CreateProgressSheet { title in
+                    await progressStore.createProgress(title: title)
+                }
+            }
+        }
+    }
+
+    private var progressMenu: some View {
+        Menu {
+            if progressStore.progresses.isEmpty {
+                Button("Create progress…") {
+                    showCreateProgress = true
+                }
+            } else {
+                Picker(
+                    "Progress",
+                    selection: Binding(
+                        get: { progressStore.selectedProgressId },
+                        set: { progressStore.selectProgress(id: $0) }
+                    )
+                ) {
+                    ForEach(progressStore.progresses) { item in
+                        Text(item.title).tag(Optional.some(item.id))
+                    }
+                }
+                Divider()
+                Button("Create progress…") {
+                    showCreateProgress = true
+                }
+            }
+        } label: {
+            HStack(spacing: 4) {
+                Text(menuTitle)
+                    .lineLimit(1)
+                Image(systemName: "chevron.down")
+                    .font(.caption.weight(.semibold))
+            }
+        }
+        .accessibilityLabel("Choose progress")
+    }
+
+    private var menuTitle: String {
+        if progressStore.progresses.isEmpty {
+            return "Progress"
+        }
+        if let id = progressStore.selectedProgressId,
+           let item = progressStore.progresses.first(where: { $0.id == id }) {
+            return item.title
+        }
+        return "Progress"
+    }
+
+    @ViewBuilder
+    private var homeContent: some View {
+        if let id = progressStore.selectedProgressId,
+           let item = progressStore.progresses.first(where: { $0.id == id }) {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 16) {
+                    Text(item.title)
+                        .font(.title2.weight(.semibold))
+                    if !item.content.summary.isEmpty {
+                        Text(item.content.summary)
+                            .font(.headline)
+                    }
+                    if !item.content.body.isEmpty {
+                        Text(item.content.body)
+                            .font(.body)
+                    }
+                    if item.content.summary.isEmpty && item.content.body.isEmpty {
+                        Text("No content yet. Edit this progress to add a summary or notes.")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding()
+            }
+        } else {
+            ContentUnavailableView(
+                "Choose a progress",
+                systemImage: "chevron.down.circle",
+                description: Text("Pick one from the menu above.")
+            )
         }
     }
 }
@@ -100,5 +208,6 @@ private struct ProfileSectionView: View {
     FirebasePreviewRoot {
         MainTabView()
             .environment(AuthViewModel())
+            .environment(ProgressStore())
     }
 }

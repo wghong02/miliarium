@@ -1,5 +1,6 @@
 import SwiftUI
 import FirebaseCore
+import FirebaseAuth
 
 @main
 struct MiliariumApp: App {
@@ -11,10 +12,19 @@ struct MiliariumApp: App {
         return AuthViewModel()
     }()
 
+    @State private var progressStore = ProgressStore()
+
     var body: some Scene {
         WindowGroup {
             ContentView()
                 .environment(auth)
+                .environment(progressStore)
+                .onAppear {
+                    progressStore.updateUserId(auth.user?.uid)
+                }
+                .onChange(of: auth.user?.uid) { _, newValue in
+                    progressStore.updateUserId(newValue)
+                }
         }
     }
 }
