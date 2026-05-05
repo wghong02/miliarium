@@ -127,7 +127,50 @@ final class ProgressStore {
             pendingSelectProgressId = progressRef.documentID
             return true
         } catch CreateProgressFailure.timedOut {
-            errorMessage = "Couldn’t create progress in time. Check your connection and try again."
+            errorMessage = "Couldn't create progress in time. Check your connection and try again."
+            return false
+        } catch {
+            errorMessage = error.localizedDescription
+            return false
+        }
+    }
+
+    /// Deletes a progress item and removes the user's link to it.
+    /// - Parameter progressId: The ID of the progress item to delete
+    /// - Returns: `true` if deletion succeeded, `false` otherwise
+    @discardableResult
+    func deleteProgress(progressId: String) async -> Bool {
+        guard let userId else {
+            errorMessage = "User not authenticated"
+            return false
+        }
+
+        errorMessage = nil
+        let db = Firestore.firestore()
+
+        // References to delete
+        let progressRef = db.collection("progressItems").document(progressId)
+        let linkRef = db.collection("users").document(userId).collection("progressLinks").document(progressId)
+
+        let batch = db.batch()
+        batch.deleteDocument(progressRef)
+        batch.deleteDocument(linkRef)
+
+        do {
+            try await withThrowingTaskGroup(of: Void.self) { group in
+                group.addTask {
+                    try await Self.commitBatch(batch)
+                }
+                group.addTask {
+                    try await Task.sleep(for: .seconds(3))
+                    throw CreateProgressFailure.timedOut
+                }
+                try await group.next()
+                group.cancelAll()
+            }
+            return true
+        } catch CreateProgressFailure.timedOut {
+            errorMessage = "Couldn't delete progress in time. Check your connection and try again."
             return false
         } catch {
             errorMessage = error.localizedDescription

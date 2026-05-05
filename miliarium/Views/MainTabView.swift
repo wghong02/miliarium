@@ -35,6 +35,9 @@ private struct HomeSectionView: View {
     @Environment(ProgressStore.self) private var progressStore
 
     @State private var showCreateProgress = false
+    @State private var showDeleteConfirmation = false
+    @State private var progressToDelete: String?
+    @State private var isDeleting = false
 
     var body: some View {
         NavigationStack {
@@ -67,6 +70,12 @@ private struct HomeSectionView: View {
             .sheet(isPresented: $showCreateProgress) {
                 CreateProgressSheet { title in
                     await progressStore.createProgress(title: title)
+                }
+            }
+            .overlay(alignment: .bottom) {
+                if showDeleteConfirmation {
+                    deleteConfirmationOverlay
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
                 }
             }
         }
@@ -138,6 +147,22 @@ private struct HomeSectionView: View {
                             .font(.subheadline)
                             .foregroundStyle(.secondary)
                     }
+
+                    Spacer()
+
+                    // Delete button at the bottom
+                    Button(role: .destructive) {
+                        progressToDelete = item.id
+                        showDeleteConfirmation = true
+                    } label: {
+                        HStack {
+                            Image(systemName: "trash.fill")
+                            Text("Delete Progress")
+                        }
+                        .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.bordered)
+                    .disabled(isDeleting)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding()
@@ -148,6 +173,97 @@ private struct HomeSectionView: View {
                 systemImage: "chevron.down.circle",
                 description: Text("Pick one from the menu above.")
             )
+        }
+    }
+
+    private var deleteConfirmationOverlay: some View {
+        ZStack(alignment: .bottom) {
+            // Semi-transparent background
+            Color.black.opacity(0.3)
+                .ignoresSafeArea()
+                .onTapGesture {
+                    withAnimation {
+                        showDeleteConfirmation = false
+                    }
+                }
+
+            // Confirmation dialog
+            VStack(spacing: 16) {
+                VStack(spacing: 12) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .font(.system(size: 40))
+                        .foregroundStyle(.red)
+
+                    Text("Delete Progress?")
+                        .font(.title3.weight(.semibold))
+
+                    Text("This action cannot be undone. The progress item and all associated data will be permanently deleted.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                }
+                .padding(.vertical, 20)
+
+                Divider()
+
+                // Buttons
+                VStack(spacing: 0) {
+                    Button(role: .destructive) {
+                        deleteSelectedProgress()
+                    } label: {
+                        HStack {
+                            if isDeleting {
+                                ProgressView()
+                                    .tint(.red)
+                            } else {
+                                Image(systemName: "trash.fill")
+                            }
+                            Text("Delete")
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding(12)
+                        .foregroundStyle(.red)
+                    }
+                    .disabled(isDeleting)
+
+                    Divider()
+
+                    Button("Cancel") {
+                        withAnimation {
+                            showDeleteConfirmation = false
+                        }
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(12)
+                    .foregroundStyle(.blue)
+                }
+            }
+            .background(Color(.systemBackground))
+            .cornerRadius(12, corners: [.topLeft, .topRight])
+            .padding(.horizontal, 16)
+            .padding(.bottom, 16)
+        }
+    }
+
+    private func deleteSelectedProgress() {
+        guard let progressId = progressToDelete else { return }
+
+        isDeleting = true
+
+        Task {
+            let success = await progressStore.deleteProgress(progressId: progressId)
+
+            await MainActor.run {
+                isDeleting = false
+
+                if success {
+                    withAnimation {
+                        showDeleteConfirmation = false
+                    }
+                    progressToDelete = nil
+                }
+                // Error message is stored in progressStore.errorMessage
+            }
         }
     }
 }
@@ -201,6 +317,27 @@ private struct ProfileSectionView: View {
             }
             .navigationTitle("Profile")
         }
+    }
+}
+
+// MARK: - Helper extension for rounded corners
+extension View {
+    func cornerRadius(_ radius: CGFloat, corners: UIRectCorner) -> some View {
+        clipShape(RoundedCorner(radius: radius, corners: corners))
+    }
+}
+
+struct RoundedCorner: Shape {
+    var radius: CGFloat = .infinity
+    var corners: UIRectCorner = .allCorners
+
+    func path(in rect: CGRect) -> Path {
+        let path = UIBezierPath(
+            roundedRect: rect,
+            byRoundingCorners: corners,
+            cornerRadii: CGSize(width: radius, height: radius)
+        )
+        return Path(path.cgPath)
     }
 }
 
