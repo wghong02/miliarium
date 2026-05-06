@@ -8,6 +8,7 @@ private enum CreateProgressFailure: Error {
 
 /// Progress data lives in `progressItems/{progressItemId}`.
 /// Per-user membership is tracked in `users/{userId}/progressLinks/{progressItemId}` (document id matches the item id).
+/// Each progress has an associated calendar at `calendars/{calendarId}`.
 @Observable
 @MainActor
 final class ProgressStore {
@@ -84,7 +85,7 @@ final class ProgressStore {
         selectedProgressId = id
     }
 
-    /// Creates one progress document + link. Waits at most **3 seconds**; does not retry.
+    /// Creates one progress document + link + calendar. Waits at most **3 seconds**; does not retry.
     @discardableResult
     func createProgress(title: String) async -> Bool {
         let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -93,7 +94,14 @@ final class ProgressStore {
         let db = Firestore.firestore()
         let progressRef = db.collection("progressItems").document()
         let linkRef = db.collection("users").document(userId).collection("progressLinks").document(progressRef.documentID)
+        
+        // Create calendar for this progress
+        let calendar = Calendar(progressItemId: progressRef.documentID, createdAt: Date(), updatedAt: Date())
+        let calendarRef = db.collection("calendars").document(calendar.id)
+        
         let batch = db.batch()
+        
+        // Add progress item
         batch.setData(
             [
                 "title": trimmed,
@@ -103,6 +111,8 @@ final class ProgressStore {
             ],
             forDocument: progressRef
         )
+        
+        // Add progress link
         batch.setData(
             [
                 "userId": userId,
@@ -111,6 +121,18 @@ final class ProgressStore {
             ],
             forDocument: linkRef
         )
+        
+        // Add calendar
+        batch.setData(
+            [
+                "progressItemId": calendar.progressItemId,
+                "ownerUserId": userId,
+                "createdAt": FieldValue.serverTimestamp(),
+                "updatedAt": FieldValue.serverTimestamp(),
+            ],
+            forDocument: calendarRef
+        )
+        
         do {
             try await withThrowingTaskGroup(of: Void.self) { group in
                 group.addTask {
@@ -135,7 +157,7 @@ final class ProgressStore {
         }
     }
 
-    /// Deletes a progress item and removes the user's link to it.
+    /// Deletes a progress item, its link, and its calendar (with all events).
     /// - Parameter progressId: The ID of the progress item to delete
     /// - Returns: `true` if deletion succeeded, `false` otherwise
     @discardableResult
@@ -152,11 +174,21 @@ final class ProgressStore {
         let progressRef = db.collection("progressItems").document(progressId)
         let linkRef = db.collection("users").document(userId).collection("progressLinks").document(progressId)
 
-        let batch = db.batch()
-        batch.deleteDocument(progressRef)
-        batch.deleteDocument(linkRef)
-
+        // Find and delete calendar
         do {
+            let calendarSnapshot = try await db.collection("calendars")
+                .whereField("progressItemId", isEqualTo: progressId)
+                .limit(to: 1)
+                .getDocuments()
+            
+            let batch = db.batch()
+            batch.deleteDocument(progressRef)
+            batch.deleteDocument(linkRef)
+            
+            if let calendarDoc = calendarSnapshot.documents.first {
+                batch.deleteDocument(calendarDoc.reference)
+            }
+            
             try await withThrowingTaskGroup(of: Void.self) { group in
                 group.addTask {
                     try await Self.commitBatch(batch)
