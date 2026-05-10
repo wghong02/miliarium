@@ -11,19 +11,22 @@ struct CalendarView: View {
     @State private var isLoading = false
     @State private var errorMessage: String?
     @State private var showAddEvent = false
+    @State private var editingEvent: CalendarEvent?
     
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
-                // Calendar header with month/year and navigation
+                // Calendar header
                 calendarHeader
-                    .padding()
+                    .padding(.horizontal)
+                    .padding(.vertical, 8)
                     .background(Color(.systemBackground))
                     .border(Color(.separator), width: 1)
                 
                 // Month calendar grid
                 monthCalendarGrid
-                    .padding()
+                    .padding(.horizontal)
+                    .padding(.vertical, 4)
                 
                 Divider()
                 
@@ -57,6 +60,24 @@ struct CalendarView: View {
                     }
                 )
             }
+            .sheet(item: $editingEvent) { event in
+                EventDetailSheet(
+                    event: event,
+                    progressItemId: progressItemId,
+                    onUpdate: { _ in
+                        editingEvent = nil
+                        Task {
+                            await loadEvents()
+                        }
+                    },
+                    onDelete: {
+                        editingEvent = nil
+                        Task {
+                            await loadEvents()
+                        }
+                    }
+                )
+            }
             .onAppear {
                 Task {
                     await loadEvents()
@@ -69,7 +90,7 @@ struct CalendarView: View {
     // MARK: - Header
     
     private var calendarHeader: some View {
-        HStack {
+        HStack(spacing: 12) {
             Button(action: previousMonth) {
                 Image(systemName: "chevron.left")
                     .font(.headline)
@@ -77,12 +98,13 @@ struct CalendarView: View {
             
             Spacer()
             
-            VStack(spacing: 4) {
+            VStack(spacing: 2) {
                 Text(monthYearString)
-                    .font(.headline)
+                    .font(.subheadline.weight(.semibold))
                 Text(progressTitle)
-                    .font(.caption)
+                    .font(.caption2)
                     .foregroundStyle(.secondary)
+                    .lineLimit(1)
             }
             
             Spacer()
@@ -103,31 +125,30 @@ struct CalendarView: View {
     // MARK: - Calendar Grid
     
     private var monthCalendarGrid: some View {
-        VStack(spacing: 8) {
-            // Day of week headers
+        VStack(spacing: 2) {
             HStack(spacing: 0) {
                 ForEach(["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"], id: \.self) { day in
                     Text(day)
-                        .font(.caption.weight(.semibold))
+                        .font(.caption2.weight(.semibold))
                         .foregroundStyle(.secondary)
                         .frame(maxWidth: .infinity)
                 }
             }
             
-            // Days grid
             let days = daysInMonthGrid
-            ForEach(0..<days.count, id: \.self) { index in
-                if index % 7 == 0 {
-                    HStack(spacing: 0) {
-                        ForEach(0..<7, id: \.self) { dayOffset in
-                            let dayIndex = index + dayOffset
-                            if dayIndex < days.count {
-                                dayCell(for: days[dayIndex])
-                                    .frame(maxWidth: .infinity)
-                            } else {
-                                Color.clear
-                                    .frame(maxWidth: .infinity)
-                            }
+            let totalWeeks = (days.count + 6) / 7
+            
+            ForEach(0..<totalWeeks, id: \.self) { weekIndex in
+                HStack(spacing: 0) {
+                    ForEach(0..<7, id: \.self) { dayOffset in
+                        let dayIndex = weekIndex * 7 + dayOffset
+                        if dayIndex < days.count {
+                            dayCell(for: days[dayIndex])
+                                .frame(maxWidth: .infinity)
+                        } else {
+                            Color.clear
+                                .frame(maxWidth: .infinity)
+                                .frame(height: 36)
                         }
                     }
                 }
@@ -136,29 +157,28 @@ struct CalendarView: View {
     }
     
     private func dayCell(for day: Date?) -> some View {
-        VStack(spacing: 4) {
+        VStack(spacing: 1) {
             if let day = day {
                 Text("\(Foundation.Calendar.current.component(.day, from: day))")
-                    .font(.system(.body, design: .default).weight(.semibold))
+                    .font(.subheadline.weight(.semibold))
                     .foregroundColor(isSelectedDate(day) ? .white : .primary)
                 
-                // Dot indicator if day has events
                 if hasEventsOnDate(day) {
                     Circle()
                         .fill(isSelectedDate(day) ? Color.white.opacity(0.5) : Color.blue)
-                        .frame(width: 4, height: 4)
+                        .frame(width: 3, height: 3)
                 }
             }
         }
-        .frame(height: 50)
         .frame(maxWidth: .infinity)
+        .frame(height: 36)
         .background(
             Group {
                 if let day = day, isSelectedDate(day) {
-                    RoundedRectangle(cornerRadius: 8)
+                    RoundedRectangle(cornerRadius: 4)
                         .fill(Color.blue)
                 } else if let day = day, isCurrentDate(day) {
-                    RoundedRectangle(cornerRadius: 8)
+                    RoundedRectangle(cornerRadius: 4)
                         .strokeBorder(Color.blue, lineWidth: 1)
                 } else {
                     Color.clear
@@ -201,71 +221,47 @@ struct CalendarView: View {
             Foundation.Calendar.current.isDate(event.timestamp, inSameDayAs: date)
         }.sorted { $0.timestamp < $1.timestamp }
         
-        return ScrollView {
-            VStack(alignment: .leading, spacing: 0) {
-                // Date header
-                HStack {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(formatDate(date))
-                            .font(.headline)
-                        Text("\(dateEvents.count) event\(dateEvents.count == 1 ? "" : "s")")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                    Spacer()
-                }
-                .padding()
-                .background(Color(.systemGray6))
-                
-                if dateEvents.isEmpty {
-                    ContentUnavailableView(
-                        "No events",
-                        systemImage: "calendar.badge.exclamationmark",
-                        description: Text("Add an event to get started.")
-                    )
-                    .padding()
-                } else {
-                    VStack(spacing: 0) {
-                        ForEach(dateEvents) { event in
-                            eventRow(event)
-                                .onTapGesture {
-                                    // Could expand event details here
-                                }
-                        }
-                    }
-                }
-            }
-        }
-    }
-    
-    private func eventRow(_ event: CalendarEvent) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 12) {
+        return VStack(alignment: .leading, spacing: 0) {
+            HStack {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(event.title)
+                    Text(formatDate(date))
                         .font(.headline)
-                    
-                    HStack(spacing: 8) {
-                        Image(systemName: "clock.fill")
-                            .font(.caption)
-                        Text(event.timeString)
-                            .font(.caption)
-                    }
-                    .foregroundStyle(.secondary)
+                    Text("\(dateEvents.count) event\(dateEvents.count == 1 ? "" : "s")")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
                 Spacer()
             }
+            .padding(.vertical, 6)
+            .padding(.horizontal, 12)
+            .background(Color(.systemGray6))
             
-            if let description = event.description, !description.isEmpty {
-                Text(description)
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(2)
+            if dateEvents.isEmpty {
+                Spacer()
+                ContentUnavailableView(
+                    "No events",
+                    systemImage: "calendar.badge.exclamationmark",
+                    description: Text("Add an event to get started.")
+                )
+                Spacer()
+            } else {
+                List {
+                    ForEach(dateEvents) { event in
+                        EventRowView(event: event, onTap: {
+                            editingEvent = event
+                        }, onDelete: {
+                            Task {
+                                await deleteEvent(event)
+                            }
+                        })
+                        .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
+                        .listRowSeparator(.hidden)
+                        .listRowBackground(Color.clear)
+                    }
+                }
+                .listStyle(.plain)
             }
         }
-        .padding()
-        .background(Color(.systemBackground))
-        .border(Color(.separator), width: 1)
     }
     
     // MARK: - Helper Functions
@@ -299,6 +295,19 @@ struct CalendarView: View {
         currentDate = Foundation.Calendar.current.date(byAdding: .month, value: 1, to: currentDate) ?? currentDate
     }
     
+    // MARK: - Delete Event
+    
+    private func deleteEvent(_ event: CalendarEvent) async {
+        do {
+            try await calendarService.deleteEvent(event.id, from: progressItemId)
+            await loadEvents()
+        } catch {
+            await MainActor.run {
+                errorMessage = "Failed to delete event: \(error.localizedDescription)"
+            }
+        }
+    }
+    
     // MARK: - Load Events
     
     private func loadEvents() async {
@@ -315,6 +324,52 @@ struct CalendarView: View {
             await MainActor.run {
                 self.errorMessage = error.localizedDescription
                 self.isLoading = false
+            }
+        }
+    }
+}
+
+// MARK: - Event Row with Swipe Actions
+
+struct EventRowView: View {
+    let event: CalendarEvent
+    var onTap: () -> Void
+    var onDelete: () -> Void
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 8) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(event.title)
+                        .font(.subheadline.weight(.semibold))
+                    
+                    HStack(spacing: 4) {
+                        Image(systemName: "clock.fill")
+                            .font(.caption2)
+                        Text(event.timeString)
+                            .font(.caption2)
+                    }
+                    .foregroundStyle(.secondary)
+                }
+                Spacer()
+            }
+            
+            if let description = event.description, !description.isEmpty {
+                Text(description)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+        }
+        .padding(.vertical, 6)
+        .padding(.horizontal, 10)
+        .contentShape(Rectangle())
+        .onTapGesture {
+            onTap()
+        }
+        .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+            Button(role: .destructive, action: onDelete) {
+                Text("Delete")
             }
         }
     }
@@ -408,6 +463,163 @@ struct AddEventSheet: View {
                     isSaving = false
                     errorMessage = error.localizedDescription
                 }
+            }
+        }
+    }
+}
+
+// MARK: - Event Detail Sheet
+
+struct EventDetailSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    
+    let event: CalendarEvent
+    let progressItemId: String
+    var onUpdate: (CalendarEvent) -> Void
+    var onDelete: () -> Void
+    
+    @State private var title: String
+    @State private var description: String
+    @State private var date: Date
+    @State private var isSaving = false
+    @State private var showDeleteAlert = false
+    @State private var errorMessage: String?
+    
+    init(
+        event: CalendarEvent,
+        progressItemId: String,
+        onUpdate: @escaping (CalendarEvent) -> Void,
+        onDelete: @escaping () -> Void
+    ) {
+        self.event = event
+        self.progressItemId = progressItemId
+        self.onUpdate = onUpdate
+        self.onDelete = onDelete
+        
+        _title = State(initialValue: event.title)
+        _description = State(initialValue: event.description ?? "")
+        _date = State(initialValue: event.timestamp)
+    }
+    
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("Event Details") {
+                    TextField("Event title", text: $title)
+                        .textInputAutocapitalization(.sentences)
+                    
+                    TextField(
+                        "Description (optional)",
+                        text: $description,
+                        axis: .vertical
+                    )
+                    .textInputAutocapitalization(.sentences)
+                    .lineLimit(3...5)
+                }
+                
+                Section("Date & Time") {
+                    DatePicker(
+                        "When",
+                        selection: $date,
+                        displayedComponents: [.date, .hourAndMinute]
+                    )
+                }
+                
+                if let errorMessage = errorMessage {
+                    Section {
+                        Text(errorMessage)
+                            .foregroundStyle(.red)
+                            .font(.footnote)
+                    }
+                }
+                
+                Section {
+                    Button(role: .destructive) {
+                        showDeleteAlert = true
+                    } label: {
+                        Text("Delete")
+                            .frame(maxWidth: .infinity)
+                    }
+                }
+            }
+            .navigationTitle("Edit Event")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") {
+                        dismiss()
+                    }
+                }
+                
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Save") {
+                        saveEvent()
+                    }
+                    .disabled(
+                        title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                        || isSaving
+                    )
+                }
+            }
+            .alert("Delete Event?", isPresented: $showDeleteAlert) {
+                Button("Cancel") {
+                    showDeleteAlert = false
+                }
+                Button("Delete", role: .cancel) {
+                    Task {
+                        await deleteEvent()
+                    }
+                }
+            } message: {
+                Text("This action cannot be undone.")
+            }
+        }
+    }
+    
+    private func saveEvent() {
+        let trimmedTitle = title.trimmingCharacters(
+            in: .whitespacesAndNewlines
+        )
+        
+        guard !trimmedTitle.isEmpty else { return }
+        
+        isSaving = true
+        errorMessage = nil
+        
+        Task {
+            do {
+                var updatedEvent = event
+                updatedEvent.title = trimmedTitle
+                updatedEvent.description = description.isEmpty ? nil : description
+                updatedEvent.timestamp = date
+                
+                try await calendarService.updateEvent(updatedEvent)
+                
+                await MainActor.run {
+                    isSaving = false
+                    onUpdate(updatedEvent)
+                    dismiss()
+                }
+            } catch {
+                await MainActor.run {
+                    isSaving = false
+                    errorMessage = error.localizedDescription
+                }
+            }
+        }
+    }
+    
+    private func deleteEvent() async {
+        do {
+            try await calendarService.deleteEvent(event.id, from: progressItemId)
+            
+            await MainActor.run {
+                onDelete()
+                dismiss()
+            }
+        } catch {
+            await MainActor.run {
+                errorMessage = "Failed to delete: \(error.localizedDescription)"
             }
         }
     }

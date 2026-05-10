@@ -8,7 +8,7 @@ private enum CreateProgressFailure: Error {
 
 /// Progress data lives in `progressItems/{progressItemId}`.
 /// Per-user membership is tracked in `users/{userId}/progressLinks/{progressItemId}` (document id matches the item id).
-/// Each progress has an associated calendar at `calendars/{calendarId}`.
+/// Each progress has an associated calendar at `calendars/{calendarId}` with nested events.
 @Observable
 @MainActor
 final class ProgressStore {
@@ -95,7 +95,7 @@ final class ProgressStore {
         let progressRef = db.collection("progressItems").document()
         let linkRef = db.collection("users").document(userId).collection("progressLinks").document(progressRef.documentID)
         
-        // Create calendar for this progress
+        // Create calendar for this progress (using Calendar model)
         let calendar = Calendar(progressItemId: progressRef.documentID, createdAt: Date(), updatedAt: Date())
         let calendarRef = db.collection("calendars").document(calendar.id)
         
@@ -157,7 +157,7 @@ final class ProgressStore {
         }
     }
 
-    /// Deletes a progress item, its link, and its calendar (with all events).
+    /// Deletes a progress item, its link, and its calendar (with all nested events via cascade delete).
     /// - Parameter progressId: The ID of the progress item to delete
     /// - Returns: `true` if deletion succeeded, `false` otherwise
     @discardableResult
@@ -174,32 +174,68 @@ final class ProgressStore {
         let progressRef = db.collection("progressItems").document(progressId)
         let linkRef = db.collection("users").document(userId).collection("progressLinks").document(progressId)
 
-        // Find and delete calendar
+        // Find and delete calendar (cascade delete will handle nested events)
         do {
             let calendarSnapshot = try await db.collection("calendars")
                 .whereField("progressItemId", isEqualTo: progressId)
                 .limit(to: 1)
                 .getDocuments()
             
-            let batch = db.batch()
-            batch.deleteDocument(progressRef)
-            batch.deleteDocument(linkRef)
-            
+            // First, cascade delete the calendar and all its events
             if let calendarDoc = calendarSnapshot.documents.first {
+                let calendarId = calendarDoc.documentID
+                
+                // Fetch all events to delete them
+                let eventsSnapshot = try await db.collection("calendars")
+                    .document(calendarId)
+                    .collection("events")
+                    .getDocuments()
+                
+                let batch = db.batch()
+                
+                // Delete all events
+                for eventDoc in eventsSnapshot.documents {
+                    batch.deleteDocument(eventDoc.reference)
+                }
+                
+                // Delete calendar
                 batch.deleteDocument(calendarDoc.reference)
+                
+                // Delete progress and link
+                batch.deleteDocument(progressRef)
+                batch.deleteDocument(linkRef)
+                
+                // Commit batch (all deletions atomic)
+                try await withThrowingTaskGroup(of: Void.self) { group in
+                    group.addTask {
+                        try await Self.commitBatch(batch)
+                    }
+                    group.addTask {
+                        try await Task.sleep(for: .seconds(3))
+                        throw CreateProgressFailure.timedOut
+                    }
+                    try await group.next()
+                    group.cancelAll()
+                }
+            } else {
+                // No calendar found, just delete progress and link
+                let batch = db.batch()
+                batch.deleteDocument(progressRef)
+                batch.deleteDocument(linkRef)
+                
+                try await withThrowingTaskGroup(of: Void.self) { group in
+                    group.addTask {
+                        try await Self.commitBatch(batch)
+                    }
+                    group.addTask {
+                        try await Task.sleep(for: .seconds(3))
+                        throw CreateProgressFailure.timedOut
+                    }
+                    try await group.next()
+                    group.cancelAll()
+                }
             }
             
-            try await withThrowingTaskGroup(of: Void.self) { group in
-                group.addTask {
-                    try await Self.commitBatch(batch)
-                }
-                group.addTask {
-                    try await Task.sleep(for: .seconds(3))
-                    throw CreateProgressFailure.timedOut
-                }
-                try await group.next()
-                group.cancelAll()
-            }
             return true
         } catch CreateProgressFailure.timedOut {
             errorMessage = "Couldn't delete progress in time. Check your connection and try again."

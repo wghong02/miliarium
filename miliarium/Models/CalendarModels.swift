@@ -5,10 +5,10 @@ import FirebaseFirestore
 struct CalendarEvent: Identifiable, Hashable, Sendable, Codable {
     let id: String
     let progressItemId: String
-    let timestamp: Date
-    let title: String
-    let description: String?
-    let attachmentId: String?  // For future use
+    var timestamp: Date
+    var title: String
+    var description: String?
+    var attachmentId: String?  // For future use
     
     enum CodingKeys: String, CodingKey {
         case id
@@ -20,7 +20,7 @@ struct CalendarEvent: Identifiable, Hashable, Sendable, Codable {
     }
     
     /// Initialize a new calendar event (typically before saving to Firestore)
-    init(
+    nonisolated init(
         id: String = UUID().uuidString,
         progressItemId: String,
         timestamp: Date,
@@ -111,7 +111,7 @@ struct Calendar: Identifiable, Hashable, Sendable, Codable {
     }
     
     /// Initialize a new calendar
-    init(
+    nonisolated init(
         id: String = UUID().uuidString,
         progressItemId: String,
         createdAt: Date = Date(),
