@@ -2,6 +2,7 @@
 *.xcodeproj/xcuserdata/
 *.xcworkspace/
 DerivedData/
+.derivedData/
 .DS_Store
 build/
 *.pbxuser
