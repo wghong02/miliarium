@@ -13,17 +13,21 @@ struct MiliariumApp: App {
     }()
 
     @State private var progressStore = ProgressStore()
+    @State private var invitationVM = InvitationViewModel()
 
     var body: some Scene {
         WindowGroup {
             ContentView()
                 .environment(auth)
                 .environment(progressStore)
+                .environment(invitationVM)
                 .onAppear {
                     progressStore.updateUserId(auth.user?.uid)
+                    invitationVM.setUserId(auth.user?.uid)
                 }
                 .onChange(of: auth.user?.uid) { _, newValue in
                     progressStore.updateUserId(newValue)
+                    invitationVM.setUserId(newValue)
                 }
         }
     }

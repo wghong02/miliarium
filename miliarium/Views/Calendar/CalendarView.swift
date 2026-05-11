@@ -1,5 +1,6 @@
 import SwiftUI
 import Foundation
+import FirebaseFirestore
 
 struct CalendarView: View {
     let progressItemId: String
