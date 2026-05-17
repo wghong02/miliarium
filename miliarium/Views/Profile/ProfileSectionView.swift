@@ -1,4 +1,5 @@
 import SwiftUI
+import FirebaseAuth
 
 struct ProfileSectionView: View {
     @Environment(AuthViewModel.self) private var auth

@@ -11,6 +11,8 @@ struct Invitation: Identifiable, Hashable, Sendable, Codable {
     let id: String
     let fromUserId: String
     let fromUserEmail: String
+    let toUserId: String
+    let toUserEmail: String
     let progressItemId: String
     let progressItemTitle: String
     var status: InvitationStatus
@@ -20,6 +22,8 @@ struct Invitation: Identifiable, Hashable, Sendable, Codable {
         id: String = UUID().uuidString,
         fromUserId: String,
         fromUserEmail: String,
+        toUserId: String,
+        toUserEmail: String,
         progressItemId: String,
         progressItemTitle: String,
         status: InvitationStatus = .pending,
@@ -28,6 +32,8 @@ struct Invitation: Identifiable, Hashable, Sendable, Codable {
         self.id = id
         self.fromUserId = fromUserId
         self.fromUserEmail = fromUserEmail
+        self.toUserId = toUserId
+        self.toUserEmail = toUserEmail
         self.progressItemId = progressItemId
         self.progressItemTitle = progressItemTitle
         self.status = status
@@ -39,6 +45,8 @@ struct Invitation: Identifiable, Hashable, Sendable, Codable {
 
         guard let fromUserId = data["fromUserId"] as? String,
               let fromUserEmail = data["fromUserEmail"] as? String,
+              let toUserId = data["toUserId"] as? String,
+              let toUserEmail = data["toUserEmail"] as? String,
               let progressItemId = data["progressItemId"] as? String,
               let progressItemTitle = data["progressItemTitle"] as? String,
               let statusString = data["status"] as? String,
@@ -51,6 +59,8 @@ struct Invitation: Identifiable, Hashable, Sendable, Codable {
             id: document.documentID,
             fromUserId: fromUserId,
             fromUserEmail: fromUserEmail,
+            toUserId: toUserId,
+            toUserEmail: toUserEmail,
             progressItemId: progressItemId,
             progressItemTitle: progressItemTitle,
             status: status,
@@ -62,6 +72,8 @@ struct Invitation: Identifiable, Hashable, Sendable, Codable {
         [
             "fromUserId": fromUserId,
             "fromUserEmail": fromUserEmail,
+            "toUserId": toUserId,
+            "toUserEmail": toUserEmail,
             "progressItemId": progressItemId,
             "progressItemTitle": progressItemTitle,
             "status": status.rawValue,

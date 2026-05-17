@@ -124,6 +124,8 @@ struct InformationRow: View {
         invitation: Invitation(
             fromUserId: "user123",
             fromUserEmail: "friend@example.com",
+            toUserId: "user456",
+            toUserEmail: "otherfriend@example.com",
             progressItemId: "progress123",
             progressItemTitle: "Learn Swift",
             status: .pending

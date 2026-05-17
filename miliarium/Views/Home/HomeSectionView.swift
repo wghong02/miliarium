@@ -1,33 +1,44 @@
 import SwiftUI
+import FirebaseAuth
 
 struct HomeSectionView: View {
     @Environment(ProgressStore.self) private var progressStore
+    @Environment(InvitationViewModel.self) private var invitationVM
+    @Environment(AuthViewModel.self) private var authVM
 
     @State private var showCreateProgress = false
     @State private var showDeleteConfirmation = false
+    @State private var showSendInvitation = false
     @State private var progressToDelete: String?
     @State private var isDeleting = false
+    @State private var currentUserId: String?
+    @State private var currentUserEmail: String?
 
     var body: some View {
         NavigationStack {
-            Group {
-                if progressStore.isLoading {
-                    ProgressView()
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                } else if progressStore.progresses.isEmpty {
-                    ContentUnavailableView {
-                        Label("No progress yet", systemImage: "chart.line.uptrend.xyaxis")
-                    } description: {
-                        Text("Open the Progress menu above or tap below to create one.")
-                    } actions: {
-                        Button("Create progress") {
-                            showCreateProgress = true
+            ScrollView {
+                VStack(alignment: .leading, spacing: 16) {
+                    Group {
+                        if progressStore.isLoading {
+                            ProgressView()
+                                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        } else if progressStore.progresses.isEmpty {
+                            ContentUnavailableView {
+                                Label("No progress yet", systemImage: "chart.line.uptrend.xyaxis")
+                            } description: {
+                                Text("Open the Progress menu above or tap below to create one.")
+                            } actions: {
+                                Button("Create progress") {
+                                    showCreateProgress = true
+                                }
+                                .buttonStyle(.borderedProminent)
+                            }
+                        } else {
+                            homeContent
                         }
-                        .buttonStyle(.borderedProminent)
                     }
-                } else {
-                    homeContent
                 }
+                .padding(.horizontal)
             }
             .navigationTitle("Home")
             .navigationBarTitleDisplayMode(.inline)
@@ -36,9 +47,32 @@ struct HomeSectionView: View {
                     progressMenu
                 }
             }
+            .onAppear {
+                currentUserId = authVM.user?.uid
+                currentUserEmail = authVM.user?.email
+            }
+            .onChange(of: authVM.user?.uid) { _, newValue in
+                currentUserId = newValue
+            }
+            .onChange(of: authVM.user?.email) { _, newValue in
+                currentUserEmail = newValue
+            }
             .sheet(isPresented: $showCreateProgress) {
                 CreateProgressSheet { title in
                     await progressStore.createProgress(title: title)
+                }
+            }
+            .sheet(isPresented: $showSendInvitation) {
+                if let id = progressStore.selectedProgressId,
+                   let item = progressStore.progresses.first(where: { $0.id == id }),
+                   let userId = currentUserId,
+                   let userEmail = currentUserEmail {
+                    SendInvitationSheet(
+                        progressItemId: id,
+                        progressItemTitle: item.title,
+                        currentUserId: userId,
+                        currentUserEmail: userEmail
+                    )
                 }
             }
             .overlay(alignment: .bottom) {
@@ -99,48 +133,70 @@ struct HomeSectionView: View {
     private var homeContent: some View {
         if let id = progressStore.selectedProgressId,
            let item = progressStore.progresses.first(where: { $0.id == id }) {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 16) {
-                    Text(item.title)
-                        .font(.title2.weight(.semibold))
-                    if !item.content.summary.isEmpty {
-                        Text(item.content.summary)
-                            .font(.headline)
-                    }
-                    if !item.content.body.isEmpty {
-                        Text(item.content.body)
-                            .font(.body)
-                    }
-                    if item.content.summary.isEmpty && item.content.body.isEmpty {
-                        Text("No content yet. Edit this progress to add a summary or notes.")
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
-                    }
+            VStack(alignment: .leading, spacing: 16) {
+                Text(item.title)
+                    .font(.title2.weight(.semibold))
+                if !item.content.summary.isEmpty {
+                    Text(item.content.summary)
+                        .font(.headline)
+                }
+                if !item.content.body.isEmpty {
+                    Text(item.content.body)
+                        .font(.body)
+                }
+                if item.content.summary.isEmpty && item.content.body.isEmpty {
+                    Text("No content yet. Edit this progress to add a summary or notes.")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
 
-                    Spacer()
+                Spacer()
 
-                    Button(role: .destructive) {
-                        progressToDelete = item.id
-                        showDeleteConfirmation = true
+                if item.ownerUserId == currentUserId {
+                    Button {
+                        showSendInvitation = true
                     } label: {
                         HStack {
-                            Image(systemName: "trash.fill")
-                            Text("Delete Progress")
+                            Image(systemName: "person.badge.plus")
+                            Text("Send Invitation")
                         }
                         .frame(maxWidth: .infinity)
                     }
-                    .buttonStyle(.bordered)
-                    .disabled(isDeleting)
+                    .buttonStyle(.borderedProminent)
+                    .tint(.blue)
+
+                    invitedUsersPanel
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding()
+
+                Button(role: .destructive) {
+                    progressToDelete = item.id
+                    showDeleteConfirmation = true
+                } label: {
+                    HStack {
+                        Image(systemName: "trash.fill")
+                        Text("Delete Progress")
+                    }
+                    .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.bordered)
+                .disabled(isDeleting)
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
         } else {
             ContentUnavailableView(
                 "Choose a progress",
                 systemImage: "chevron.down.circle",
                 description: Text("Pick one from the menu above.")
             )
+        }
+    }
+
+    @ViewBuilder
+    private var invitedUsersPanel: some View {
+        if let id = progressStore.selectedProgressId,
+           let item = progressStore.progresses.first(where: { $0.id == id }),
+           item.ownerUserId == currentUserId {
+            InvitedUsersPanelView(progressItemId: id, progressItemTitle: item.title)
         }
     }
 

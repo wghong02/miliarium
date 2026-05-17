@@ -176,64 +176,56 @@ final class ProgressStore {
 
         // Find and delete calendar (cascade delete will handle nested events)
         do {
+            // Fetch all related invitations to delete them
+            let invitationsSnapshot = try await db.collection("invitations")
+                .whereField("progressItemId", isEqualTo: progressId)
+                .getDocuments()
             let calendarSnapshot = try await db.collection("calendars")
                 .whereField("progressItemId", isEqualTo: progressId)
                 .limit(to: 1)
                 .getDocuments()
-            
+
+            let batch = db.batch()
+
             // First, cascade delete the calendar and all its events
             if let calendarDoc = calendarSnapshot.documents.first {
                 let calendarId = calendarDoc.documentID
-                
+
                 // Fetch all events to delete them
                 let eventsSnapshot = try await db.collection("calendars")
                     .document(calendarId)
                     .collection("events")
                     .getDocuments()
-                
-                let batch = db.batch()
-                
+
                 // Delete all events
                 for eventDoc in eventsSnapshot.documents {
                     batch.deleteDocument(eventDoc.reference)
                 }
-                
+
                 // Delete calendar
                 batch.deleteDocument(calendarDoc.reference)
-                
-                // Delete progress and link
-                batch.deleteDocument(progressRef)
-                batch.deleteDocument(linkRef)
-                
-                // Commit batch (all deletions atomic)
-                try await withThrowingTaskGroup(of: Void.self) { group in
-                    group.addTask {
-                        try await Self.commitBatch(batch)
-                    }
-                    group.addTask {
-                        try await Task.sleep(for: .seconds(3))
-                        throw CreateProgressFailure.timedOut
-                    }
-                    try await group.next()
-                    group.cancelAll()
+            }
+
+            // Delete all invitations related to this progress
+            for invitationDoc in invitationsSnapshot.documents {
+                batch.deleteDocument(invitationDoc.reference)
+            }
+
+            // Delete progress and link
+            batch.deleteDocument(progressRef)
+            batch.deleteDocument(linkRef)
+
+            // Commit batch (all deletions atomic)
+            try await withThrowingTaskGroup(of: Void.self) { group in
+                group.addTask {
+                    try await Self.commitBatch(batch)
                 }
-            } else {
-                // No calendar found, just delete progress and link
-                let batch = db.batch()
-                batch.deleteDocument(progressRef)
-                batch.deleteDocument(linkRef)
-                
-                try await withThrowingTaskGroup(of: Void.self) { group in
-                    group.addTask {
-                        try await Self.commitBatch(batch)
-                    }
-                    group.addTask {
-                        try await Task.sleep(for: .seconds(3))
-                        throw CreateProgressFailure.timedOut
-                    }
-                    try await group.next()
-                    group.cancelAll()
+                group.addTask {
+                    try await Task.sleep(for: .seconds(3))
+                    throw CreateProgressFailure.timedOut
                 }
+                try await group.next()
+                group.cancelAll()
             }
             
             return true

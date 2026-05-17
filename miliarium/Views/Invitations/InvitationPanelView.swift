@@ -12,6 +12,16 @@ struct InvitationPanelView: View {
                 if invitationVM.isLoading {
                     ProgressView()
                         .scaleEffect(0.8)
+                } else {
+                    Button(action: {
+                        Task {
+                            await invitationVM.refreshInvitations()
+                        }
+                    }) {
+                        Image(systemName: "arrow.clockwise")
+                            .font(.caption)
+                    }
+                    .foregroundStyle(.secondary)
                 }
             }
 
@@ -37,6 +47,11 @@ struct InvitationPanelView: View {
         .padding()
         .background(Color(.systemGray6))
         .cornerRadius(8)
+        .onAppear {
+            Task {
+                await invitationVM.refreshInvitations()
+            }
+        }
     }
 }
 

@@ -31,11 +31,13 @@ struct ProgressItem: Identifiable, Hashable, Sendable {
     let id: String
     var title: String
     var content: ProgressContent
+    let ownerUserId: String
 
-    nonisolated init(id: String, title: String, content: ProgressContent) {
+    nonisolated init(id: String, title: String, content: ProgressContent, ownerUserId: String) {
         self.id = id
         self.title = title
         self.content = content
+        self.ownerUserId = ownerUserId
     }
 
     /// Parsing-only initializer; safe from background tasks (not tied to UI actor).
@@ -43,6 +45,7 @@ struct ProgressItem: Identifiable, Hashable, Sendable {
         guard document.exists, let data = document.data() else { return nil }
         let title = data["title"] as? String ?? "Untitled"
         let content = ProgressContent.fromFirestore(data["content"])
-        self.init(id: document.documentID, title: title, content: content)
+        let ownerUserId = data["ownerUserId"] as? String ?? ""
+        self.init(id: document.documentID, title: title, content: content, ownerUserId: ownerUserId)
     }
 }
