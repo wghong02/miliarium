@@ -152,6 +152,8 @@ struct HomeSectionView: View {
 
                 Spacer()
 
+                UpcomingEventsView(progressItemId: id)
+
                 if item.ownerUserId == currentUserId {
                     Button {
                         showSendInvitation = true
