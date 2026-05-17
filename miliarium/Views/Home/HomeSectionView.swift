@@ -166,20 +166,20 @@ struct HomeSectionView: View {
                     .tint(.blue)
 
                     invitedUsersPanel
-                }
 
-                Button(role: .destructive) {
-                    progressToDelete = item.id
-                    showDeleteConfirmation = true
-                } label: {
-                    HStack {
-                        Image(systemName: "trash.fill")
-                        Text("Delete Progress")
+                    Button(role: .destructive) {
+                        progressToDelete = item.id
+                        showDeleteConfirmation = true
+                    } label: {
+                        HStack {
+                            Image(systemName: "trash.fill")
+                            Text("Delete Progress")
+                        }
+                        .frame(maxWidth: .infinity)
                     }
-                    .frame(maxWidth: .infinity)
+                    .buttonStyle(.bordered)
+                    .disabled(isDeleting)
                 }
-                .buttonStyle(.bordered)
-                .disabled(isDeleting)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         } else {
