@@ -41,11 +41,14 @@ struct InvitedUsersPanelView: View {
                     .foregroundStyle(.secondary)
                     .padding(.vertical, 8)
             } else {
-                VStack(spacing: 8) {
-                    ForEach(invitedUsers) { userInfo in
-                        InvitedUserItemView(userInfo: userInfo, progressItemId: progressItemId)
+                ScrollView {
+                    VStack(spacing: 8) {
+                        ForEach(invitedUsers) { userInfo in
+                            InvitedUserItemView(userInfo: userInfo, progressItemId: progressItemId)
+                        }
                     }
                 }
+                .frame(maxHeight: 260)
             }
 
             if let error = errorMessage {
