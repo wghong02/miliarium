@@ -8,11 +8,15 @@ struct CreateMilestoneSheet: View {
 
     @State private var milestoneName = ""
     @State private var selectedType: MilestoneType = .count
-    @State private var counterValue = 0
+    @State private var counterValueText = "0"
     @State private var isCompleted = false
     @State private var targetDate = Date().addingTimeInterval(86400 * 7) // 1 week from now
     @State private var isCreating = false
     @State private var errorMessage: String?
+
+    private var counterValue: Int {
+        Int(counterValueText) ?? 0
+    }
 
     var body: some View {
         NavigationStack {
@@ -21,10 +25,11 @@ struct CreateMilestoneSheet: View {
                     TextField("Milestone name", text: $milestoneName)
 
                     Picker("Type", selection: $selectedType) {
-                        Text("Count").tag(MilestoneType.count)
-                        Text("Achievement").tag(MilestoneType.achievement)
-                        Text("Timeline").tag(MilestoneType.timeline)
+                        ForEach([MilestoneType.count, .achievement, .timeline], id: \.self) { type in
+                            Text(type.displayName).tag(type)
+                        }
                     }
+                    .pickerStyle(.segmented)
                 }
 
                 Section("Type-Specific Details") {
@@ -34,31 +39,49 @@ struct CreateMilestoneSheet: View {
                             HStack {
                                 Text("Starting value")
                                 Spacer()
-                                TextField("0", value: $counterValue, format: .number)
+                                TextField("0", text: $counterValueText)
                                     .keyboardType(.numberPad)
                                     .textFieldStyle(.roundedBorder)
-                                    .frame(width: 80)
+                                    .frame(maxWidth: 120)
                             }
-                            HStack {
+                            HStack(spacing: 12) {
                                 Spacer()
-                                Button(action: { counterValue = max(0, counterValue - 1) }) {
+                                Button(action: {
+                                    let current = Int(counterValueText) ?? 0
+                                    counterValueText = String(max(0, current - 1))
+                                }) {
                                     Image(systemName: "minus.circle.fill")
+                                        .font(.title3)
+                                        .contentShape(Rectangle())
                                 }
+                                .buttonStyle(.plain)
+                                .foregroundStyle(.blue)
+
                                 Text("\(counterValue)")
-                                    .frame(width: 30)
-                                Button(action: { counterValue += 1 }) {
+                                    .monospacedDigit()
+                                    .font(.title3)
+                                    .foregroundStyle(.blue)
+
+                                Button(action: {
+                                    let current = Int(counterValueText) ?? 0
+                                    counterValueText = String(current + 1)
+                                }) {
                                     Image(systemName: "plus.circle.fill")
+                                        .font(.title3)
+                                        .contentShape(Rectangle())
                                 }
+                                .buttonStyle(.plain)
+                                .foregroundStyle(.blue)
+
                                 Spacer()
                             }
-                            .font(.title3)
                         }
 
                     case .achievement:
                         Toggle("Completed", isOn: $isCompleted)
 
                     case .timeline:
-                        DatePicker("Target date", selection: $targetDate, displayedComponents: .date)
+                        DatePicker("Date", selection: $targetDate, displayedComponents: .date)
                     }
                 }
 
@@ -136,11 +159,15 @@ struct EditMilestoneSheet: View {
     var onDismiss: () -> Void = {}
 
     @State private var milestoneName: String = ""
-    @State private var counterValue: Int = 0
+    @State private var counterValueText: String = "0"
     @State private var isCompleted: Bool = false
     @State private var targetDate: Date = Date()
     @State private var isUpdating = false
     @State private var errorMessage: String?
+
+    private var counterValue: Int {
+        Int(counterValueText) ?? 0
+    }
 
     var body: some View {
         NavigationStack {
@@ -158,31 +185,49 @@ struct EditMilestoneSheet: View {
                             HStack {
                                 Text("Count")
                                 Spacer()
-                                TextField("0", value: $counterValue, format: .number)
+                                TextField("0", text: $counterValueText)
                                     .keyboardType(.numberPad)
                                     .textFieldStyle(.roundedBorder)
-                                    .frame(width: 80)
+                                    .frame(maxWidth: 120)
                             }
-                            HStack {
+                            HStack(spacing: 12) {
                                 Spacer()
-                                Button(action: { counterValue = max(0, counterValue - 1) }) {
+                                Button(action: {
+                                    let current = Int(counterValueText) ?? 0
+                                    counterValueText = String(max(0, current - 1))
+                                }) {
                                     Image(systemName: "minus.circle.fill")
+                                        .font(.title3)
+                                        .contentShape(Rectangle())
                                 }
+                                .buttonStyle(.plain)
+                                .foregroundStyle(.blue)
+
                                 Text("\(counterValue)")
-                                    .frame(width: 30)
-                                Button(action: { counterValue += 1 }) {
+                                    .monospacedDigit()
+                                    .font(.title3)
+                                    .foregroundStyle(.blue)
+
+                                Button(action: {
+                                    let current = Int(counterValueText) ?? 0
+                                    counterValueText = String(current + 1)
+                                }) {
                                     Image(systemName: "plus.circle.fill")
+                                        .font(.title3)
+                                        .contentShape(Rectangle())
                                 }
+                                .buttonStyle(.plain)
+                                .foregroundStyle(.blue)
+
                                 Spacer()
                             }
-                            .font(.title3)
                         }
 
                     case .achievement:
                         Toggle("Completed", isOn: $isCompleted)
 
                     case .timeline:
-                        DatePicker("Target date", selection: $targetDate, displayedComponents: .date)
+                        DatePicker("Date", selection: $targetDate, displayedComponents: .date)
                     }
                 }
 
@@ -219,7 +264,7 @@ struct EditMilestoneSheet: View {
             }
             .onAppear {
                 milestoneName = milestone.name
-                counterValue = milestone.counter ?? 0
+                counterValueText = String(milestone.counter ?? 0)
                 isCompleted = milestone.completed ?? false
                 targetDate = milestone.targetDate ?? Date()
             }
