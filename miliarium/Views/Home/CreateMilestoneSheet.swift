@@ -163,6 +163,8 @@ struct EditMilestoneSheet: View {
     @State private var isCompleted: Bool = false
     @State private var targetDate: Date = Date()
     @State private var isUpdating = false
+    @State private var isDeleting = false
+    @State private var showDeleteAlert = false
     @State private var errorMessage: String?
 
     private var counterValue: Int {
@@ -249,7 +251,17 @@ struct EditMilestoneSheet: View {
                                 .frame(maxWidth: .infinity, alignment: .center)
                         }
                     }
-                    .disabled(milestoneName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isUpdating)
+                    .disabled(milestoneName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isUpdating || isDeleting)
+                }
+
+                Section {
+                    Button(role: .destructive) {
+                        showDeleteAlert = true
+                    } label: {
+                        Text("Delete")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .disabled(isDeleting || isUpdating)
                 }
             }
             .navigationTitle("Edit Milestone")
@@ -267,6 +279,18 @@ struct EditMilestoneSheet: View {
                 counterValueText = String(milestone.counter ?? 0)
                 isCompleted = milestone.completed ?? false
                 targetDate = milestone.targetDate ?? Date()
+            }
+            .alert("Delete Milestone?", isPresented: $showDeleteAlert) {
+                Button("Cancel") {
+                    showDeleteAlert = false
+                }
+                Button("Delete", role: .cancel) {
+                    Task {
+                        await deleteMilestone()
+                    }
+                }
+            } message: {
+                Text("This action cannot be undone.")
             }
         }
     }
@@ -299,6 +323,21 @@ struct EditMilestoneSheet: View {
                     isUpdating = false
                     errorMessage = error.localizedDescription
                 }
+            }
+        }
+    }
+
+    private func deleteMilestone() async {
+        do {
+            try await milestoneService.deleteMilestone(milestone.id, for: progressItemId)
+
+            await MainActor.run {
+                onDismiss()
+                dismiss()
+            }
+        } catch {
+            await MainActor.run {
+                errorMessage = "Failed to delete: \(error.localizedDescription)"
             }
         }
     }

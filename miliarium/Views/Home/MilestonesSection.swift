@@ -76,17 +76,15 @@ struct MilestonesSection: View {
                     ForEach(filteredMilestones) { milestone in
                         MilestoneRowView(
                             milestone: milestone,
-                            onDelete: {
-                                deletingMilestoneId = milestone.id
-                            }
+                            progressItemId: progressItemId
                         )
                         .swipeActions(edge: .trailing, allowsFullSwipe: true) {
-                            Button(role: .destructive) {
+                            Button(role: .destructive, action: {
                                 Task {
                                     await deleteMilestone(milestone)
                                 }
-                            } label: {
-                                Label("Delete", systemImage: "trash.fill")
+                            }) {
+                                Text("Delete")
                             }
                         }
                     }
@@ -116,6 +114,13 @@ struct MilestonesSection: View {
         .onDisappear {
             listener?.remove()
             listenerInitialized = false
+        }
+        .onChange(of: progressItemId) { oldValue, newValue in
+            listener?.remove()
+            listenerInitialized = false
+            milestones = []
+            setUpListener()
+            listenerInitialized = true
         }
     }
 
@@ -149,9 +154,11 @@ struct MilestonesSection: View {
     private func deleteMilestone(_ milestone: Milestone) async {
         do {
             try await milestoneService.deleteMilestone(milestone.id, for: progressItemId)
-            errorMessage = nil
+            await refreshMilestones()
         } catch {
-            errorMessage = error.localizedDescription
+            await MainActor.run {
+                errorMessage = error.localizedDescription
+            }
         }
     }
 }
@@ -175,7 +182,7 @@ struct FilterButton: View {
 
 struct MilestoneRowView: View {
     let milestone: Milestone
-    var onDelete: () -> Void = {}
+    let progressItemId: String
 
     @State private var isEditing = false
 
@@ -214,7 +221,7 @@ struct MilestoneRowView: View {
         .sheet(isPresented: $isEditing) {
             EditMilestoneSheet(
                 milestone: milestone,
-                progressItemId: milestone.id  // This needs to be passed properly
+                progressItemId: progressItemId
             ) {
                 isEditing = false
             }
