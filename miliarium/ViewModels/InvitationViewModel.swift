@@ -2,6 +2,25 @@ import Foundation
 import Observation
 import FirebaseFirestore
 
+// Separate non-MainActor class to manage listener lifecycle
+private final class ListenerManager {
+    var listener: ListenerRegistration?
+
+    func setListener(_ newListener: ListenerRegistration?) {
+        listener?.remove()
+        listener = newListener
+    }
+
+    func removeListener() {
+        listener?.remove()
+        listener = nil
+    }
+
+    deinit {
+        removeListener()
+    }
+}
+
 @Observable
 @MainActor
 final class InvitationViewModel {
@@ -9,13 +28,12 @@ final class InvitationViewModel {
     private(set) var isLoading = false
     private(set) var errorMessage: String?
 
-    nonisolated(unsafe) private var userId: String?
-    nonisolated(unsafe) private var listener: ListenerRegistration?
+    private var userId: String?
+    private var listenerManager = ListenerManager()
 
     @MainActor
     func setUserId(_ id: String?) {
-        listener?.remove()
-        listener = nil
+        listenerManager.removeListener()
         userId = id
         invitations = []
         errorMessage = nil
@@ -35,7 +53,7 @@ final class InvitationViewModel {
             .whereField("toUserId", isEqualTo: id)
             .order(by: "createdAt", descending: true)
 
-        listener = query.addSnapshotListener { [weak self] snapshot, error in
+        let newListener = query.addSnapshotListener { [weak self] snapshot, error in
             Task { @MainActor in
                 guard let self else { return }
 
@@ -68,6 +86,8 @@ final class InvitationViewModel {
                 self.isLoading = false
             }
         }
+
+        listenerManager.setListener(newListener)
 
         // Also do an initial fetch to ensure data loads quickly
         Task {
@@ -119,9 +139,5 @@ final class InvitationViewModel {
             self.errorMessage = error.localizedDescription
             print("[InvitationVM] Refresh error: \(error.localizedDescription)")
         }
-    }
-
-    deinit {
-        listener?.remove()
     }
 }
