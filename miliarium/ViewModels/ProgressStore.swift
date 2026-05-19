@@ -85,6 +85,30 @@ final class ProgressStore {
         selectedProgressId = id
     }
 
+    /// Updates the summary of a progress item
+    func updateProgressSummary(progressId: String, summary: String) async -> Bool {
+        errorMessage = nil
+        let db = Firestore.firestore()
+
+        do {
+            try await db.collection("progressItems")
+                .document(progressId)
+                .updateData([
+                    "content.summary": summary
+                ])
+
+            // Update local cache immediately
+            if let index = progresses.firstIndex(where: { $0.id == progressId }) {
+                progresses[index].content.summary = summary
+            }
+
+            return true
+        } catch {
+            errorMessage = error.localizedDescription
+            return false
+        }
+    }
+
     /// Creates one progress document + link + calendar. Waits at most **3 seconds**; does not retry.
     @discardableResult
     func createProgress(title: String) async -> Bool {
