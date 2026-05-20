@@ -21,7 +21,7 @@ struct MilestonesSection: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: 0) {
             // Header with title and create button
             HStack {
                 Text("Milestones")
@@ -38,6 +38,7 @@ struct MilestonesSection: View {
                     .foregroundStyle(.blue)
                 }
             }
+            .padding()
 
             // Filter buttons
             HStack(spacing: 8) {
@@ -58,6 +59,8 @@ struct MilestonesSection: View {
                 Spacer()
             }
             .font(.caption)
+            .padding(.horizontal)
+            .padding(.vertical, 8)
 
             // Milestones list
             if filteredMilestones.isEmpty {
@@ -69,37 +72,35 @@ struct MilestonesSection: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
-                .frame(maxWidth: .infinity, alignment: .center)
-                .padding(.vertical, 12)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
             } else {
-                VStack(spacing: 8) {
+                List {
                     ForEach(filteredMilestones) { milestone in
                         MilestoneRowView(
                             milestone: milestone,
+                            progressItemId: progressItemId,
                             onDelete: {
-                                deletingMilestoneId = milestone.id
-                            }
-                        )
-                        .swipeActions(edge: .trailing, allowsFullSwipe: true) {
-                            Button(role: .destructive) {
                                 Task {
                                     await deleteMilestone(milestone)
                                 }
-                            } label: {
-                                Label("Delete", systemImage: "trash.fill")
                             }
-                        }
+                        )
+                        .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
+                        .listRowSeparator(.hidden)
+                        .listRowBackground(Color.clear)
                     }
                 }
+                .listStyle(.plain)
+                .frame(minHeight: min(CGFloat(filteredMilestones.count) * 50, 240), maxHeight: 240)
             }
 
             if let error = errorMessage {
                 Text(error)
                     .font(.caption)
                     .foregroundStyle(.red)
+                    .padding()
             }
         }
-        .padding()
         .sheet(isPresented: $showCreateMilestone) {
             CreateMilestoneSheet(progressItemId: progressItemId) {
                 Task {
@@ -116,6 +117,13 @@ struct MilestonesSection: View {
         .onDisappear {
             listener?.remove()
             listenerInitialized = false
+        }
+        .onChange(of: progressItemId) { oldValue, newValue in
+            listener?.remove()
+            listenerInitialized = false
+            milestones = []
+            setUpListener()
+            listenerInitialized = true
         }
     }
 
@@ -149,9 +157,11 @@ struct MilestonesSection: View {
     private func deleteMilestone(_ milestone: Milestone) async {
         do {
             try await milestoneService.deleteMilestone(milestone.id, for: progressItemId)
-            errorMessage = nil
+            await refreshMilestones()
         } catch {
-            errorMessage = error.localizedDescription
+            await MainActor.run {
+                errorMessage = error.localizedDescription
+            }
         }
     }
 }
@@ -175,6 +185,7 @@ struct FilterButton: View {
 
 struct MilestoneRowView: View {
     let milestone: Milestone
+    let progressItemId: String
     var onDelete: () -> Void = {}
 
     @State private var isEditing = false
@@ -207,14 +218,18 @@ struct MilestoneRowView: View {
         .padding(.horizontal, 10)
         .background(Color(.systemBackground).opacity(0.5))
         .cornerRadius(6)
-        .contentShape(Rectangle())
         .onTapGesture {
             isEditing = true
+        }
+        .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+            Button(role: .destructive, action: onDelete) {
+                Text("Delete")
+            }
         }
         .sheet(isPresented: $isEditing) {
             EditMilestoneSheet(
                 milestone: milestone,
-                progressItemId: milestone.id  // This needs to be passed properly
+                progressItemId: progressItemId
             ) {
                 isEditing = false
             }

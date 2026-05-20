@@ -9,6 +9,7 @@ struct HomeSectionView: View {
     @State private var showCreateProgress = false
     @State private var showDeleteConfirmation = false
     @State private var showSendInvitation = false
+    @State private var showEditSummary = false
     @State private var progressToDelete: String?
     @State private var isDeleting = false
     @State private var currentUserId: String?
@@ -75,6 +76,17 @@ struct HomeSectionView: View {
                     )
                 }
             }
+            .sheet(isPresented: $showEditSummary) {
+                if let id = progressStore.selectedProgressId,
+                   let item = progressStore.progresses.first(where: { $0.id == id }) {
+                    EditSummarySheet(
+                        progressId: id,
+                        initialSummary: item.content.summary
+                    ) {
+                        showEditSummary = false
+                    }
+                }
+            }
             .overlay(alignment: .bottom) {
                 if showDeleteConfirmation {
                     deleteConfirmationOverlay
@@ -134,11 +146,27 @@ struct HomeSectionView: View {
         if let id = progressStore.selectedProgressId,
            let item = progressStore.progresses.first(where: { $0.id == id }) {
             VStack(alignment: .leading, spacing: 16) {
-                Text(item.title)
-                    .font(.title2.weight(.semibold))
+                HStack(alignment: .top) {
+                    Text(item.title)
+                        .font(.title2.weight(.semibold))
+
+                    Spacer()
+
+                    if item.ownerUserId == currentUserId {
+                        Button(action: { showEditSummary = true }) {
+                            Image(systemName: "pencil.circle.fill")
+                                .font(.headline)
+                                .foregroundStyle(.blue)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+
                 if !item.content.summary.isEmpty {
                     Text(item.content.summary)
-                        .font(.headline)
+                        .font(.body)
+                        .lineLimit(3)
+                        .truncationMode(.tail)
                 }
                 if !item.content.body.isEmpty {
                     Text(item.content.body)
