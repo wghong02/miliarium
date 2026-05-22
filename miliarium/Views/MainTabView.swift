@@ -15,7 +15,7 @@ struct MainTabView: View {
 
             ExploreSectionView()
                 .tabItem {
-                    Label("Explore", systemImage: "map.fill")
+                    Label("Map", systemImage: "map.fill")
                 }
 
             ActivitySectionView()

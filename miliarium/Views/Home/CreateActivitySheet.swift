@@ -11,15 +11,18 @@ struct CreateActivitySheet: View {
 
     let progressItemId: String
     let initialTimestamp: Date?
+    let initialHasLocation: Bool
     var onActivityCreated: () -> Void = {}
 
     init(
         progressItemId: String,
         initialTimestamp: Date? = nil,
+        initialHasLocation: Bool = false,
         onActivityCreated: @escaping () -> Void = {}
     ) {
         self.progressItemId = progressItemId
         self.initialTimestamp = initialTimestamp
+        self.initialHasLocation = initialHasLocation
         self.onActivityCreated = onActivityCreated
 
         // When opened from the Calendar tab we want the time dimension
@@ -27,6 +30,11 @@ struct CreateActivitySheet: View {
         if let initialTimestamp {
             _hasTime = State(initialValue: true)
             _timestamp = State(initialValue: initialTimestamp)
+        }
+        // When opened from the Map tab we want the location dimension
+        // already enabled. The current location is auto-fetched in .task.
+        if initialHasLocation {
+            _hasLocation = State(initialValue: true)
         }
     }
 
@@ -105,7 +113,12 @@ struct CreateActivitySheet: View {
                     Button("Cancel") { dismiss() }
                 }
             }
-            .task { await loadCollections() }
+            .task {
+                await loadCollections()
+                if initialHasLocation && latitude == nil {
+                    fetchCurrentLocation()
+                }
+            }
         }
     }
 
