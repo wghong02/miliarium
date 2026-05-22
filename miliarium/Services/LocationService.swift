@@ -1,0 +1,88 @@
+import Foundation
+import CoreLocation
+
+@Observable
+@MainActor
+class LocationService: NSObject, CLLocationManagerDelegate {
+    private let locationManager = CLLocationManager()
+
+    @ObservationIgnored
+    private var locationContinuation: CheckedContinuation<CLLocationCoordinate2D, Error>?
+
+    var authorizationStatus: CLAuthorizationStatus {
+        locationManager.authorizationStatus
+    }
+
+    var isLocationServiceEnabled: Bool {
+        CLLocationManager.locationServicesEnabled()
+    }
+
+    override init() {
+        super.init()
+        locationManager.delegate = self
+        locationManager.desiredAccuracy = kCLLocationAccuracyBest
+    }
+
+    // MARK: - Permission Management
+
+    func requestLocationPermission() {
+        locationManager.requestWhenInUseAuthorization()
+    }
+
+    // MARK: - Location Request
+
+    func getCurrentLocation() async throws -> CLLocationCoordinate2D {
+        if authorizationStatus != .authorizedWhenInUse && authorizationStatus != .authorizedAlways {
+            throw LocationError.permissionDenied
+        }
+
+        if !isLocationServiceEnabled {
+            throw LocationError.locationServicesDisabled
+        }
+
+        return try await withCheckedThrowingContinuation { continuation in
+            self.locationContinuation = continuation
+            locationManager.requestLocation()
+        }
+    }
+
+    // MARK: - CLLocationManagerDelegate
+
+    func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
+        guard let location = locations.last else {
+            locationContinuation?.resume(throwing: LocationError.noLocationFound)
+            locationContinuation = nil
+            return
+        }
+
+        locationContinuation?.resume(returning: location.coordinate)
+        locationContinuation = nil
+    }
+
+    func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
+        locationContinuation?.resume(throwing: error)
+        locationContinuation = nil
+    }
+}
+
+enum LocationError: LocalizedError {
+    case permissionDenied
+    case locationServicesDisabled
+    case noLocationFound
+    case invalidCoordinate
+
+    var errorDescription: String? {
+        switch self {
+        case .permissionDenied:
+            return "Location permission was denied. Please enable it in Settings."
+        case .locationServicesDisabled:
+            return "Location services are disabled on this device."
+        case .noLocationFound:
+            return "Unable to determine your current location."
+        case .invalidCoordinate:
+            return "Invalid location coordinate."
+        }
+    }
+}
+
+@MainActor let locationService = LocationService()

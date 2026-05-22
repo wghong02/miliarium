@@ -182,7 +182,7 @@ struct HomeSectionView: View {
 
                 UpcomingEventsView(progressItemId: id)
 
-                MilestonesSection(progressItemId: id)
+                CollectionsSection(progressItemId: id)
 
                 if item.ownerUserId == currentUserId {
                     Button {

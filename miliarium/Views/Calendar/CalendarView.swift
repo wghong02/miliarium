@@ -2,43 +2,50 @@ import SwiftUI
 import Foundation
 import FirebaseFirestore
 
+/// Month calendar that visualizes activities with a `timestamp`. Sourced
+/// from the unified `progressItems/{id}/activities` collection — the legacy
+/// `calendars/{id}/events` reader has been retired.
+///
+/// Tapping `+` opens `CreateActivitySheet` pre-filled with the selected
+/// date and the time dimension enabled. Tapping an activity row opens
+/// `EditActivitySheet`.
 struct CalendarView: View {
     let progressItemId: String
     let progressTitle: String
-    
+
     @State private var currentDate = Date()
     @State private var selectedDate: Date?
-    @State private var events: [CalendarEvent] = []
+    @State private var allTimedActivities: [Activity] = []
     @State private var isLoading = false
     @State private var errorMessage: String?
-    @State private var showAddEvent = false
-    @State private var editingEvent: CalendarEvent?
-    
+    @State private var listener: ListenerRegistration?
+    @State private var listenerInitialized = false
+
+    @State private var showAddActivity = false
+    @State private var editingActivity: Activity?
+
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
-                // Calendar header
                 calendarHeader
                     .padding(.horizontal)
                     .padding(.vertical, 8)
                     .background(Color(.systemBackground))
                     .border(Color(.separator), width: 1)
-                
-                // Month calendar grid
+
                 monthCalendarGrid
                     .padding(.horizontal)
                     .padding(.vertical, 4)
-                
+
                 Divider()
-                
-                // Daily events list
-                if let selectedDate = selectedDate {
-                    dailyEventsList(for: selectedDate)
+
+                if let selectedDate {
+                    dailyActivitiesList(for: selectedDate)
                 } else {
                     ContentUnavailableView(
                         "Select a date",
                         systemImage: "calendar",
-                        description: Text("Tap a date on the calendar to view events.")
+                        description: Text("Tap a date on the calendar to view activities.")
                     )
                 }
             }
@@ -46,59 +53,68 @@ struct CalendarView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button(action: { showAddEvent = true }) {
+                    Button(action: { showAddActivity = true }) {
                         Image(systemName: "plus.circle.fill")
                     }
                 }
             }
-            .sheet(isPresented: $showAddEvent) {
-                AddEventSheet(
+            .sheet(isPresented: $showAddActivity) {
+                CreateActivitySheet(
                     progressItemId: progressItemId,
-                    onEventAdded: { _ in
-                        Task {
-                            await loadEvents()
-                        }
-                    }
+                    initialTimestamp: prefilledTimestampForCreate
                 )
             }
-            .sheet(item: $editingEvent) { event in
-                EventDetailSheet(
-                    event: event,
-                    progressItemId: progressItemId,
-                    onUpdate: { _ in
-                        editingEvent = nil
-                        Task {
-                            await loadEvents()
-                        }
-                    },
-                    onDelete: {
-                        editingEvent = nil
-                        Task {
-                            await loadEvents()
-                        }
-                    }
-                )
+            .sheet(item: $editingActivity) { activity in
+                EditActivitySheet(
+                    activity: activity,
+                    progressItemId: progressItemId
+                ) {
+                    editingActivity = nil
+                }
             }
             .onAppear {
-                Task {
-                    await loadEvents()
-                    selectedDate = currentDate
+                if !listenerInitialized {
+                    setUpListener()
+                    listenerInitialized = true
+                }
+                if selectedDate == nil { selectedDate = currentDate }
+            }
+            .onDisappear {
+                listener?.remove()
+                listenerInitialized = false
+            }
+            .onChange(of: progressItemId) { _, _ in
+                listener?.remove()
+                listenerInitialized = false
+                allTimedActivities = []
+                setUpListener()
+                listenerInitialized = true
+            }
+            .overlay(alignment: .top) {
+                if let errorMessage {
+                    Text(errorMessage)
+                        .font(.caption)
+                        .foregroundStyle(.red)
+                        .padding(8)
+                        .background(.regularMaterial)
+                        .cornerRadius(6)
+                        .padding(.top, 4)
                 }
             }
         }
     }
-    
+
     // MARK: - Header
-    
+
     private var calendarHeader: some View {
         HStack(spacing: 12) {
             Button(action: previousMonth) {
                 Image(systemName: "chevron.left")
                     .font(.headline)
             }
-            
+
             Spacer()
-            
+
             VStack(spacing: 2) {
                 Text(monthYearString)
                     .font(.subheadline.weight(.semibold))
@@ -107,24 +123,24 @@ struct CalendarView: View {
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
             }
-            
+
             Spacer()
-            
+
             Button(action: nextMonth) {
                 Image(systemName: "chevron.right")
                     .font(.headline)
             }
         }
     }
-    
+
     private var monthYearString: String {
         let formatter = DateFormatter()
         formatter.dateFormat = "MMMM yyyy"
         return formatter.string(from: currentDate)
     }
-    
-    // MARK: - Calendar Grid
-    
+
+    // MARK: - Month grid
+
     private var monthCalendarGrid: some View {
         VStack(spacing: 2) {
             HStack(spacing: 0) {
@@ -135,10 +151,10 @@ struct CalendarView: View {
                         .frame(maxWidth: .infinity)
                 }
             }
-            
+
             let days = daysInMonthGrid
             let totalWeeks = (days.count + 6) / 7
-            
+
             ForEach(0..<totalWeeks, id: \.self) { weekIndex in
                 HStack(spacing: 0) {
                     ForEach(0..<7, id: \.self) { dayOffset in
@@ -156,15 +172,15 @@ struct CalendarView: View {
             }
         }
     }
-    
+
     private func dayCell(for day: Date?) -> some View {
         VStack(spacing: 1) {
-            if let day = day {
+            if let day {
                 Text("\(Foundation.Calendar.current.component(.day, from: day))")
                     .font(.subheadline.weight(.semibold))
                     .foregroundColor(isSelectedDate(day) ? .white : .primary)
-                
-                if hasEventsOnDate(day) {
+
+                if hasActivitiesOnDate(day) {
                     Circle()
                         .fill(isSelectedDate(day) ? Color.white.opacity(0.5) : Color.blue)
                         .frame(width: 3, height: 3)
@@ -175,10 +191,10 @@ struct CalendarView: View {
         .frame(height: 36)
         .background(
             Group {
-                if let day = day, isSelectedDate(day) {
+                if let day, isSelectedDate(day) {
                     RoundedRectangle(cornerRadius: 4)
                         .fill(Color.blue)
-                } else if let day = day, isCurrentDate(day) {
+                } else if let day, isCurrentDate(day) {
                     RoundedRectangle(cornerRadius: 4)
                         .strokeBorder(Color.blue, lineWidth: 1)
                 } else {
@@ -187,47 +203,46 @@ struct CalendarView: View {
             }
         )
         .onTapGesture {
-            if let day = day {
-                selectedDate = day
-            }
+            if let day { selectedDate = day }
         }
     }
-    
+
     private var daysInMonthGrid: [Date?] {
         let calendar = Foundation.Calendar.current
         let monthComponents = calendar.dateComponents([.year, .month], from: currentDate)
-        
+
         guard let firstDayOfMonth = calendar.date(from: monthComponents) else {
             return []
         }
-        
+
         let firstWeekday = calendar.component(.weekday, from: firstDayOfMonth) - 1
         let numberOfDaysInMonth = calendar.range(of: .day, in: .month, for: currentDate)?.count ?? 0
-        
+
         var days: [Date?] = Array(repeating: nil, count: firstWeekday)
-        
         for day in 1...numberOfDaysInMonth {
             if let date = calendar.date(byAdding: .day, value: day - 1, to: firstDayOfMonth) {
                 days.append(date)
             }
         }
-        
         return days
     }
-    
-    // MARK: - Daily Events List
-    
-    private func dailyEventsList(for date: Date) -> some View {
-        let dateEvents = events.filter { event in
-            Foundation.Calendar.current.isDate(event.timestamp, inSameDayAs: date)
-        }.sorted { $0.timestamp < $1.timestamp }
-        
+
+    // MARK: - Daily activities list
+
+    private func dailyActivitiesList(for date: Date) -> some View {
+        let dateActivities = allTimedActivities
+            .filter { activity in
+                guard let ts = activity.timestamp else { return false }
+                return Foundation.Calendar.current.isDate(ts, inSameDayAs: date)
+            }
+            .sorted { ($0.timestamp ?? .distantPast) < ($1.timestamp ?? .distantPast) }
+
         return VStack(alignment: .leading, spacing: 0) {
             HStack {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(formatDate(date))
                         .font(.headline)
-                    Text("\(dateEvents.count) event\(dateEvents.count == 1 ? "" : "s")")
+                    Text("\(dateActivities.count) \(dateActivities.count == 1 ? "activity" : "activities")")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -236,388 +251,100 @@ struct CalendarView: View {
             .padding(.vertical, 6)
             .padding(.horizontal, 12)
             .background(Color(.systemGray6))
-            
-            if dateEvents.isEmpty {
+
+            if dateActivities.isEmpty {
                 Spacer()
                 ContentUnavailableView(
-                    "No events",
+                    "No activities",
                     systemImage: "calendar.badge.exclamationmark",
-                    description: Text("Add an event to get started.")
+                    description: Text("Tap + to add one.")
                 )
                 Spacer()
             } else {
                 List {
-                    ForEach(dateEvents) { event in
-                        EventRowView(event: event, onTap: {
-                            editingEvent = event
-                        }, onDelete: {
-                            Task {
-                                await deleteEvent(event)
+                    ForEach(dateActivities) { activity in
+                        CalendarActivityRow(activity: activity)
+                            .contentShape(Rectangle())
+                            .onTapGesture { editingActivity = activity }
+                            .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
+                            .listRowSeparator(.hidden)
+                            .listRowBackground(Color.clear)
+                            .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                                Button(role: .destructive) {
+                                    Task { await deleteActivity(activity) }
+                                } label: {
+                                    Text("Delete")
+                                }
                             }
-                        })
-                        .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
-                        .listRowSeparator(.hidden)
-                        .listRowBackground(Color.clear)
                     }
                 }
                 .listStyle(.plain)
             }
         }
     }
-    
-    // MARK: - Helper Functions
-    
+
+    // MARK: - Helpers
+
+    private var prefilledTimestampForCreate: Date {
+        // Honor the selected day, default to the current time of day.
+        let selected = selectedDate ?? Date()
+        let cal = Foundation.Calendar.current
+        let now = Date()
+        let hour = cal.component(.hour, from: now)
+        let minute = cal.component(.minute, from: now)
+        return cal.date(
+            bySettingHour: hour,
+            minute: minute,
+            second: 0,
+            of: selected
+        ) ?? selected
+    }
+
     private func isSelectedDate(_ date: Date) -> Bool {
-        guard let selectedDate = selectedDate else { return false }
+        guard let selectedDate else { return false }
         return Foundation.Calendar.current.isDate(date, inSameDayAs: selectedDate)
     }
-    
+
     private func isCurrentDate(_ date: Date) -> Bool {
         Foundation.Calendar.current.isDate(date, inSameDayAs: Date())
     }
-    
-    private func hasEventsOnDate(_ date: Date) -> Bool {
-        events.contains { event in
-            Foundation.Calendar.current.isDate(event.timestamp, inSameDayAs: date)
+
+    private func hasActivitiesOnDate(_ date: Date) -> Bool {
+        allTimedActivities.contains { activity in
+            guard let ts = activity.timestamp else { return false }
+            return Foundation.Calendar.current.isDate(ts, inSameDayAs: date)
         }
     }
-    
+
     private func formatDate(_ date: Date) -> String {
         let formatter = DateFormatter()
         formatter.dateFormat = "EEEE, MMMM d, yyyy"
         return formatter.string(from: date)
     }
-    
+
     private func previousMonth() {
         currentDate = Foundation.Calendar.current.date(byAdding: .month, value: -1, to: currentDate) ?? currentDate
     }
-    
+
     private func nextMonth() {
         currentDate = Foundation.Calendar.current.date(byAdding: .month, value: 1, to: currentDate) ?? currentDate
     }
-    
-    // MARK: - Delete Event
-    
-    private func deleteEvent(_ event: CalendarEvent) async {
-        do {
-            try await calendarService.deleteEvent(event.id, from: progressItemId)
-            await loadEvents()
-        } catch {
-            await MainActor.run {
-                errorMessage = "Failed to delete event: \(error.localizedDescription)"
-            }
-        }
-    }
-    
-    // MARK: - Load Events
-    
-    private func loadEvents() async {
+
+    // MARK: - Data
+
+    private func setUpListener() {
         isLoading = true
-        errorMessage = nil
-        
+        listener = activityService.setActivitiesListener(for: progressItemId) { fetched in
+            self.allTimedActivities = fetched.filter { $0.hasTime }
+            self.isLoading = false
+            self.errorMessage = nil
+        }
+    }
+
+    private func deleteActivity(_ activity: Activity) async {
         do {
-            let fetchedEvents = try await calendarService.fetchEvents(for: progressItemId)
-            await MainActor.run {
-                self.events = fetchedEvents
-                self.isLoading = false
-            }
-        } catch {
-            await MainActor.run {
-                self.errorMessage = error.localizedDescription
-                self.isLoading = false
-            }
-        }
-    }
-}
-
-// MARK: - Event Row with Swipe Actions
-
-struct EventRowView: View {
-    let event: CalendarEvent
-    var onTap: () -> Void
-    var onDelete: () -> Void
-    
-    var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            HStack(spacing: 8) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(event.title)
-                        .font(.subheadline.weight(.semibold))
-                    
-                    HStack(spacing: 4) {
-                        Image(systemName: "clock.fill")
-                            .font(.caption2)
-                        Text(event.timeString)
-                            .font(.caption2)
-                    }
-                    .foregroundStyle(.secondary)
-                }
-                Spacer()
-            }
-            
-            if let description = event.description, !description.isEmpty {
-                Text(description)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-            }
-        }
-        .padding(.vertical, 6)
-        .padding(.horizontal, 10)
-        .contentShape(Rectangle())
-        .onTapGesture {
-            onTap()
-        }
-        .swipeActions(edge: .trailing, allowsFullSwipe: true) {
-            Button(role: .destructive, action: onDelete) {
-                Text("Delete")
-            }
-        }
-    }
-}
-
-// MARK: - Add Event Sheet
-
-struct AddEventSheet: View {
-    @Environment(\.dismiss) private var dismiss
-    
-    let progressItemId: String
-    var onEventAdded: (CalendarEvent) -> Void
-    
-    @State private var eventTitle = ""
-    @State private var eventDescription = ""
-    @State private var eventDate = Date()
-    @State private var isSaving = false
-    @State private var errorMessage: String?
-    
-    var body: some View {
-        NavigationStack {
-            Form {
-                Section("Event Details") {
-                    TextField("Event title", text: $eventTitle)
-                        .textInputAutocapitalization(.sentences)
-                    
-                    TextField("Description (optional)", text: $eventDescription, axis: .vertical)
-                        .textInputAutocapitalization(.sentences)
-                        .lineLimit(3...5)
-                }
-                
-                Section("Date & Time") {
-                    DatePicker(
-                        "When",
-                        selection: $eventDate,
-                        displayedComponents: [.date, .hourAndMinute]
-                    )
-                }
-                
-                if let errorMessage = errorMessage {
-                    Section {
-                        Text(errorMessage)
-                            .foregroundStyle(.red)
-                            .font(.footnote)
-                    }
-                }
-            }
-            .navigationTitle("New Event")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") {
-                        dismiss()
-                    }
-                    .disabled(isSaving)
-                }
-                
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Add") {
-                        addEvent()
-                    }
-                    .disabled(eventTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isSaving)
-                }
-            }
-        }
-    }
-    
-    private func addEvent() {
-        let trimmedTitle = eventTitle.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedTitle.isEmpty else { return }
-        
-        isSaving = true
-        errorMessage = nil
-        
-        Task {
-            do {
-                let event = try await calendarService.addEvent(
-                    progressItemId: progressItemId,
-                    timestamp: eventDate,
-                    title: trimmedTitle,
-                    description: eventDescription.isEmpty ? nil : eventDescription
-                )
-                
-                await MainActor.run {
-                    isSaving = false
-                    onEventAdded(event)
-                    dismiss()
-                }
-            } catch {
-                await MainActor.run {
-                    isSaving = false
-                    errorMessage = error.localizedDescription
-                }
-            }
-        }
-    }
-}
-
-// MARK: - Event Detail Sheet
-
-struct EventDetailSheet: View {
-    @Environment(\.dismiss) private var dismiss
-    
-    let event: CalendarEvent
-    let progressItemId: String
-    var onUpdate: (CalendarEvent) -> Void
-    var onDelete: () -> Void
-    
-    @State private var title: String
-    @State private var description: String
-    @State private var date: Date
-    @State private var isSaving = false
-    @State private var showDeleteAlert = false
-    @State private var errorMessage: String?
-    
-    init(
-        event: CalendarEvent,
-        progressItemId: String,
-        onUpdate: @escaping (CalendarEvent) -> Void,
-        onDelete: @escaping () -> Void
-    ) {
-        self.event = event
-        self.progressItemId = progressItemId
-        self.onUpdate = onUpdate
-        self.onDelete = onDelete
-        
-        _title = State(initialValue: event.title)
-        _description = State(initialValue: event.description ?? "")
-        _date = State(initialValue: event.timestamp)
-    }
-    
-    var body: some View {
-        NavigationStack {
-            Form {
-                Section("Event Details") {
-                    TextField("Event title", text: $title)
-                        .textInputAutocapitalization(.sentences)
-                    
-                    TextField(
-                        "Description (optional)",
-                        text: $description,
-                        axis: .vertical
-                    )
-                    .textInputAutocapitalization(.sentences)
-                    .lineLimit(3...5)
-                }
-                
-                Section("Date & Time") {
-                    DatePicker(
-                        "When",
-                        selection: $date,
-                        displayedComponents: [.date, .hourAndMinute]
-                    )
-                }
-                
-                if let errorMessage = errorMessage {
-                    Section {
-                        Text(errorMessage)
-                            .foregroundStyle(.red)
-                            .font(.footnote)
-                    }
-                }
-                
-                Section {
-                    Button(role: .destructive) {
-                        showDeleteAlert = true
-                    } label: {
-                        Text("Delete")
-                            .frame(maxWidth: .infinity)
-                    }
-                }
-            }
-            .navigationTitle("Edit Event")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") {
-                        dismiss()
-                    }
-                }
-                
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Save") {
-                        saveEvent()
-                    }
-                    .disabled(
-                        title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                        || isSaving
-                    )
-                }
-            }
-            .alert("Delete Event?", isPresented: $showDeleteAlert) {
-                Button("Cancel") {
-                    showDeleteAlert = false
-                }
-                Button("Delete", role: .cancel) {
-                    Task {
-                        await deleteEvent()
-                    }
-                }
-            } message: {
-                Text("This action cannot be undone.")
-            }
-        }
-    }
-    
-    private func saveEvent() {
-        let trimmedTitle = title.trimmingCharacters(
-            in: .whitespacesAndNewlines
-        )
-        
-        guard !trimmedTitle.isEmpty else { return }
-        
-        isSaving = true
-        errorMessage = nil
-        
-        Task {
-            do {
-                var updatedEvent = event
-                updatedEvent.title = trimmedTitle
-                updatedEvent.description = description.isEmpty ? nil : description
-                updatedEvent.timestamp = date
-                
-                try await calendarService.updateEvent(updatedEvent)
-                
-                await MainActor.run {
-                    isSaving = false
-                    onUpdate(updatedEvent)
-                    dismiss()
-                }
-            } catch {
-                await MainActor.run {
-                    isSaving = false
-                    errorMessage = error.localizedDescription
-                }
-            }
-        }
-    }
-    
-    private func deleteEvent() async {
-        do {
-            try await calendarService.deleteEvent(event.id, from: progressItemId)
-            
-            await MainActor.run {
-                onDelete()
-                dismiss()
-            }
+            try await activityService.deleteActivity(activity, progressItemId: progressItemId)
+            // Listener will refresh allTimedActivities automatically.
         } catch {
             await MainActor.run {
                 errorMessage = "Failed to delete: \(error.localizedDescription)"
@@ -626,8 +353,55 @@ struct EventDetailSheet: View {
     }
 }
 
-#Preview {
-    FirebasePreviewRoot {
-        CalendarView(progressItemId: "test-123", progressTitle: "My Goal")
+// MARK: - Daily row
+
+private struct CalendarActivityRow: View {
+    let activity: Activity
+
+    private var timeString: String {
+        guard let ts = activity.timestamp else { return "" }
+        let f = DateFormatter()
+        f.timeStyle = .short
+        return f.string(from: ts)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 8) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(activity.title)
+                        .font(.subheadline.weight(.semibold))
+
+                    HStack(spacing: 4) {
+                        Image(systemName: "clock.fill")
+                            .font(.caption2)
+                        Text(timeString)
+                            .font(.caption2)
+                    }
+                    .foregroundStyle(.secondary)
+                }
+                Spacer()
+                HStack(spacing: 6) {
+                    if activity.hasLocation {
+                        Image(systemName: "mappin.circle.fill")
+                            .foregroundStyle(.red)
+                    }
+                    if let completed = activity.isCompleted {
+                        Image(systemName: completed ? "checkmark.circle.fill" : "circle")
+                            .foregroundStyle(completed ? .green : .gray)
+                    }
+                }
+                .font(.caption)
+            }
+
+            if let notes = activity.notes, !notes.isEmpty {
+                Text(notes)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+        }
+        .padding(.vertical, 6)
+        .padding(.horizontal, 10)
     }
 }
