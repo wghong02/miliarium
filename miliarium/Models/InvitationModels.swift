@@ -52,11 +52,10 @@ struct Invitation: Identifiable, Hashable, Sendable, Codable {
               let progressItemTitle = data["progressItemTitle"] as? String,
               let statusString = data["status"] as? String,
               let status = InvitationStatus(rawValue: statusString),
-              let createdAt = (data["createdAt"] as? Timestamp)?.dateValue() else {
+              let createdAt = (data["createdAt"] as? Timestamp)?.dateValue(),
+              let updatedAt = (data["updatedAt"] as? Timestamp)?.dateValue() else {
             return nil
         }
-        // Tolerate older docs that predate the `updatedAt` field.
-        let updatedAt = (data["updatedAt"] as? Timestamp)?.dateValue() ?? createdAt
 
         self.init(
             id: document.documentID,

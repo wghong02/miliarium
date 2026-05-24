@@ -12,21 +12,14 @@ struct ProfileSectionView: View {
     @State private var errorMessage: String?
     @State private var showSavedConfirmation = false
 
+    private let nameCharacterLimit = 40
+
     private var trimmedName: String {
         name.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     private var hasChanges: Bool {
         trimmedName != initialName
-    }
-
-    /// Live preview of what other users see when this user appears in an
-    /// invitation or shared list. Matches the fallback logic in
-    /// `AppUser.displayString`.
-    private var displayPreview: String {
-        if !trimmedName.isEmpty { return trimmedName }
-        if let email = auth.user?.email, !email.isEmpty { return email }
-        return "Unknown user"
     }
 
     var body: some View {
@@ -78,30 +71,44 @@ struct ProfileSectionView: View {
 
     private var nameSection: some View {
         Section {
-            TextField("Your name", text: $name)
-                .textInputAutocapitalization(.words)
-                .disabled(isLoading || isSaving)
+            HStack {
+                TextField("Your name", text: $name)
+                    .textInputAutocapitalization(.words)
+                    .disabled(isLoading || isSaving)
+                    .onChange(of: name) { _, newValue in
+                        // Enforce the 40-character cap silently as the
+                        // user types; truncate any excess (e.g. from
+                        // paste).
+                        if newValue.count > nameCharacterLimit {
+                            name = String(newValue.prefix(nameCharacterLimit))
+                        }
+                    }
 
-            Button {
-                Task { await saveName() }
-            } label: {
-                HStack {
+                Button {
+                    Task { await saveName() }
+                } label: {
                     if isSaving {
                         ProgressView()
                     } else if showSavedConfirmation {
                         Label("Saved", systemImage: "checkmark.circle.fill")
                             .foregroundStyle(.green)
+                            .labelStyle(.titleAndIcon)
                     } else {
                         Text("Save")
                     }
                 }
-                .frame(maxWidth: .infinity)
+                .buttonStyle(.borderless)
+                .disabled(!hasChanges || isSaving || isLoading)
             }
-            .disabled(!hasChanges || isSaving || isLoading)
         } header: {
-            Text("Display name")
-        } footer: {
-            Text("Shown in invitations and shared collaborations. Currently displays as: \(displayPreview).")
+            HStack {
+                Text("Display name")
+                Spacer()
+                Text("\(name.count)/\(nameCharacterLimit)")
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(name.count >= nameCharacterLimit ? .orange : .secondary)
+                    .textCase(nil)
+            }
         }
     }
 
