@@ -4,85 +4,51 @@ import FirebaseFirestore
 
 /// Plots activities that have a location on a `Map`. Sourced from the unified
 /// `progressItems/{id}/activities` collection, filtered in-memory by
-/// `hasLocation`. Tapping a pin opens `EditActivitySheet`. The `+` button
-/// opens `CreateActivitySheet` with the location dimension pre-toggled and
-/// the current device location auto-fetched.
+/// `hasLocation`.
+///
+/// Three ways to interact:
+/// - **Tap an existing pin** → opens a menu that lets you toggle the activity
+///   in/out of any collection, or open `EditActivitySheet` for full editing.
+/// - **Search the top-of-screen bar** → an Apple Maps suggestion drops a
+///   purple preview pin at that location; tap the preview pin to create a
+///   new activity already pre-filled with the search result's coordinates
+///   and name.
+/// - **`+` in toolbar** → opens `CreateActivitySheet` with current location
+///   auto-fetched.
 struct MapView: View {
     let progressItemId: String
     let progressTitle: String
 
     @State private var activitiesWithLocation: [Activity] = []
-    @State private var listener: ListenerRegistration?
-    @State private var listenerInitialized = false
+    @State private var allCollections: [ActivityCollection] = []
+    @State private var activitiesListener: ListenerRegistration?
+    @State private var collectionsListener: ListenerRegistration?
+    @State private var listenersInitialized = false
     @State private var isLoading = false
     @State private var errorMessage: String?
 
     @State private var cameraPosition: MapCameraPosition = .automatic
     @State private var hasFitCameraInitially = false
 
-    @State private var showAddActivity = false
+    // Search
+    @State private var searchModel = LocationSearchModel()
+    @State private var isResolvingSearch = false
+    @State private var searchPreviewName: String?
+    @State private var searchPreviewLat: Double?
+    @State private var searchPreviewLon: Double?
+
+    // Sheets
+    @State private var showCurrentLocationCreate = false
+    @State private var pendingPreviewCreate = false
     @State private var editingActivity: Activity?
 
     var body: some View {
         NavigationStack {
             ZStack(alignment: .bottomTrailing) {
-                Map(position: $cameraPosition) {
-                    ForEach(activitiesWithLocation) { activity in
-                        if let coord = activity.coordinate {
-                            Annotation(
-                                annotationLabel(for: activity),
-                                coordinate: CLLocationCoordinate2D(
-                                    latitude: coord.latitude,
-                                    longitude: coord.longitude
-                                )
-                            ) {
-                                Button {
-                                    editingActivity = activity
-                                } label: {
-                                    annotationView(for: activity)
-                                }
-                                .buttonStyle(.plain)
-                            }
-                        }
-                    }
-                }
-                .mapStyle(.standard)
-
-                if !activitiesWithLocation.isEmpty {
-                    Button {
-                        fitCameraToActivities()
-                    } label: {
-                        Image(systemName: "scope")
-                            .font(.title3)
-                            .padding(10)
-                            .background(.regularMaterial, in: Circle())
-                            .shadow(radius: 2)
-                    }
-                    .padding()
-                }
+                mapContent
+                recenterButton
             }
-            .overlay(alignment: .top) {
-                if activitiesWithLocation.isEmpty && !isLoading {
-                    VStack(spacing: 6) {
-                        Text("No locations yet")
-                            .font(.subheadline.weight(.semibold))
-                        Text("Tap + to add an activity with a location.")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                    .padding(12)
-                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
-                    .padding(.top, 8)
-                }
-                if let errorMessage {
-                    Text(errorMessage)
-                        .font(.caption)
-                        .foregroundStyle(.red)
-                        .padding(8)
-                        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 6))
-                        .padding(.top, 4)
-                }
-            }
+            .overlay(alignment: .top) { topOverlay }
             .navigationTitle("Map")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -97,15 +63,24 @@ struct MapView: View {
                     }
                 }
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button(action: { showAddActivity = true }) {
+                    Button(action: { showCurrentLocationCreate = true }) {
                         Image(systemName: "plus.circle.fill")
                     }
                 }
             }
-            .sheet(isPresented: $showAddActivity) {
+            .sheet(isPresented: $showCurrentLocationCreate) {
                 CreateActivitySheet(
                     progressItemId: progressItemId,
                     initialHasLocation: true
+                )
+            }
+            .sheet(isPresented: $pendingPreviewCreate, onDismiss: clearSearchPreview) {
+                CreateActivitySheet(
+                    progressItemId: progressItemId,
+                    initialHasLocation: true,
+                    initialLatitude: searchPreviewLat,
+                    initialLongitude: searchPreviewLon,
+                    initialLocationName: searchPreviewName
                 )
             }
             .sheet(item: $editingActivity) { activity in
@@ -117,44 +92,230 @@ struct MapView: View {
                 }
             }
             .onAppear {
-                if !listenerInitialized {
-                    setUpListener()
-                    listenerInitialized = true
+                if !listenersInitialized {
+                    setUpListeners()
+                    listenersInitialized = true
                 }
             }
             .onDisappear {
-                listener?.remove()
-                listenerInitialized = false
+                tearDownListeners()
                 hasFitCameraInitially = false
             }
             .onChange(of: progressItemId) { _, _ in
-                listener?.remove()
-                listenerInitialized = false
+                tearDownListeners()
                 activitiesWithLocation = []
+                allCollections = []
                 hasFitCameraInitially = false
-                setUpListener()
-                listenerInitialized = true
+                setUpListeners()
+                listenersInitialized = true
             }
         }
     }
 
-    // MARK: - Annotation
+    // MARK: - Map content
+
+    private var mapContent: some View {
+        Map(position: $cameraPosition) {
+            ForEach(activitiesWithLocation) { activity in
+                if let coord = activity.coordinate {
+                    Annotation(
+                        annotationLabel(for: activity),
+                        coordinate: CLLocationCoordinate2D(
+                            latitude: coord.latitude,
+                            longitude: coord.longitude
+                        )
+                    ) {
+                        activityPinMenu(for: activity)
+                    }
+                }
+            }
+
+            if let lat = searchPreviewLat,
+               let lon = searchPreviewLon {
+                Annotation(
+                    searchPreviewName ?? "Searched location",
+                    coordinate: CLLocationCoordinate2D(latitude: lat, longitude: lon)
+                ) {
+                    Button {
+                        pendingPreviewCreate = true
+                    } label: {
+                        ZStack {
+                            Circle()
+                                .fill(.white)
+                                .frame(width: 36, height: 36)
+                            Image(systemName: "plus.circle.fill")
+                                .font(.title)
+                                .foregroundStyle(.purple)
+                        }
+                        .shadow(radius: 3)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+        }
+        .mapStyle(.standard)
+    }
+
+    /// Tapping a pin opens a Menu with one row per collection (checkmark
+    /// when already a member) plus an "Edit details" escape hatch.
+    private func activityPinMenu(for activity: Activity) -> some View {
+        Menu {
+            if allCollections.isEmpty {
+                Text("No collections yet")
+            } else {
+                Section("Collections") {
+                    ForEach(allCollections) { collection in
+                        Button {
+                            Task { await toggleMembership(activity: activity, collection: collection) }
+                        } label: {
+                            if activity.collectionIds.contains(collection.id) {
+                                Label(collection.name, systemImage: "checkmark")
+                            } else {
+                                Text(collection.name)
+                            }
+                        }
+                    }
+                }
+            }
+            Divider()
+            Button {
+                editingActivity = activity
+            } label: {
+                Label("Edit details", systemImage: "square.and.pencil")
+            }
+        } label: {
+            ZStack {
+                Circle()
+                    .fill(.white)
+                    .frame(width: 32, height: 32)
+                Image(systemName: pinSymbol(for: activity))
+                    .font(.title2)
+                    .foregroundStyle(pinColor(for: activity))
+            }
+            .shadow(radius: 2)
+        }
+    }
+
+    // MARK: - Top overlay (search + status banners)
+
+    @ViewBuilder
+    private var topOverlay: some View {
+        VStack(spacing: 6) {
+            searchBar
+            if !searchModel.results.isEmpty {
+                searchResultsCard
+            } else if activitiesWithLocation.isEmpty && !isLoading && searchModel.query.isEmpty {
+                emptyStateCard
+            }
+            if let errorMessage {
+                Text(errorMessage)
+                    .font(.caption)
+                    .foregroundStyle(.red)
+                    .padding(8)
+                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 6))
+            }
+        }
+        .padding(.horizontal)
+        .padding(.top, 8)
+    }
+
+    private var searchBar: some View {
+        HStack(spacing: 8) {
+            Image(systemName: isResolvingSearch ? "hourglass" : "magnifyingglass")
+                .foregroundStyle(.secondary)
+            TextField("Search Apple Maps", text: $searchModel.query)
+                .textInputAutocapitalization(.words)
+                .autocorrectionDisabled()
+                .submitLabel(.search)
+            if !searchModel.query.isEmpty {
+                Button {
+                    searchModel.clear()
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundStyle(.tertiary)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(10)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10))
+    }
+
+    private var searchResultsCard: some View {
+        VStack(spacing: 0) {
+            ForEach(Array(searchModel.results.prefix(5).enumerated()), id: \.element) { index, result in
+                Button {
+                    selectSearchResult(result)
+                } label: {
+                    HStack(alignment: .top, spacing: 10) {
+                        Image(systemName: "mappin.circle")
+                            .foregroundStyle(.blue)
+                            .frame(width: 18)
+                            .padding(.top, 2)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(result.title)
+                                .font(.subheadline)
+                                .foregroundStyle(.primary)
+                                .lineLimit(1)
+                            if !result.subtitle.isEmpty {
+                                Text(result.subtitle)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                    .lineLimit(2)
+                            }
+                        }
+                        Spacer()
+                    }
+                    .padding(.vertical, 8)
+                    .padding(.horizontal, 10)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .disabled(isResolvingSearch)
+                if index < min(5, searchModel.results.count) - 1 {
+                    Divider()
+                }
+            }
+        }
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10))
+    }
+
+    private var emptyStateCard: some View {
+        VStack(spacing: 4) {
+            Text("No locations yet")
+                .font(.subheadline.weight(.semibold))
+            Text("Tap + to add an activity, or search to drop a preview pin.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10))
+    }
+
+    private var recenterButton: some View {
+        Group {
+            if !activitiesWithLocation.isEmpty {
+                Button {
+                    fitCameraToActivities()
+                } label: {
+                    Image(systemName: "scope")
+                        .font(.title3)
+                        .padding(10)
+                        .background(.regularMaterial, in: Circle())
+                        .shadow(radius: 2)
+                }
+                .padding()
+            }
+        }
+    }
+
+    // MARK: - Annotation styling
 
     private func annotationLabel(for activity: Activity) -> String {
         if let name = activity.locationName, !name.isEmpty { return name }
         return activity.title
-    }
-
-    private func annotationView(for activity: Activity) -> some View {
-        ZStack {
-            Circle()
-                .fill(.white)
-                .frame(width: 32, height: 32)
-            Image(systemName: pinSymbol(for: activity))
-                .font(.title2)
-                .foregroundStyle(pinColor(for: activity))
-        }
-        .shadow(radius: 2)
     }
 
     private func pinSymbol(for activity: Activity) -> String {
@@ -173,11 +334,70 @@ struct MapView: View {
         return .red
     }
 
+    // MARK: - Search
+
+    private func selectSearchResult(_ result: MKLocalSearchCompletion) {
+        isResolvingSearch = true
+        errorMessage = nil
+        Task {
+            do {
+                let item = try await searchModel.resolve(result)
+                let coord = LocationSearchModel.coordinate(of: item)
+                searchPreviewName = item.name ?? result.title
+                searchPreviewLat = coord.latitude
+                searchPreviewLon = coord.longitude
+                cameraPosition = .region(MKCoordinateRegion(
+                    center: coord,
+                    span: MKCoordinateSpan(latitudeDelta: 0.02, longitudeDelta: 0.02)
+                ))
+                searchModel.clear()
+                isResolvingSearch = false
+            } catch {
+                errorMessage = error.localizedDescription
+                isResolvingSearch = false
+            }
+        }
+    }
+
+    private func clearSearchPreview() {
+        searchPreviewName = nil
+        searchPreviewLat = nil
+        searchPreviewLon = nil
+    }
+
+    // MARK: - Collection membership
+
+    private func toggleMembership(
+        activity: Activity,
+        collection: ActivityCollection
+    ) async {
+        do {
+            if activity.collectionIds.contains(collection.id) {
+                try await activityService.removeActivity(
+                    activity.id,
+                    fromCollection: collection.id,
+                    progressItemId: progressItemId
+                )
+            } else {
+                try await activityService.addActivity(
+                    activity.id,
+                    toCollection: collection.id,
+                    progressItemId: progressItemId
+                )
+            }
+            // The activities listener will deliver the updated `collectionIds`.
+        } catch {
+            await MainActor.run {
+                errorMessage = "Couldn't update collection: \(error.localizedDescription)"
+            }
+        }
+    }
+
     // MARK: - Data
 
-    private func setUpListener() {
+    private func setUpListeners() {
         isLoading = true
-        listener = activityService.setActivitiesListener(for: progressItemId) { fetched in
+        activitiesListener = activityService.setActivitiesListener(for: progressItemId) { fetched in
             self.activitiesWithLocation = fetched.filter { $0.hasLocation }
             if !self.hasFitCameraInitially && !self.activitiesWithLocation.isEmpty {
                 self.fitCameraToActivities()
@@ -186,6 +406,17 @@ struct MapView: View {
             self.isLoading = false
             self.errorMessage = nil
         }
+        collectionsListener = activityCollectionService.setCollectionsListener(for: progressItemId) { fetched in
+            self.allCollections = fetched
+        }
+    }
+
+    private func tearDownListeners() {
+        activitiesListener?.remove()
+        collectionsListener?.remove()
+        activitiesListener = nil
+        collectionsListener = nil
+        listenersInitialized = false
     }
 
     /// Set the camera region to a bounding box that includes every pinned
