@@ -43,13 +43,15 @@ struct CreateActivitySheet: View {
         // When opened from the Map tab we want the location dimension
         // already enabled. If coordinates are also passed (e.g. the user
         // tapped a search-result preview pin), we pre-fill them and skip
-        // the auto current-location fetch.
+        // the auto current-location fetch. The passed-in location name is
+        // treated as the Apple Maps resolved name, not as a user-entered
+        // custom name — so the custom name field stays empty.
         if initialHasLocation || initialLatitude != nil {
             _hasLocation = State(initialValue: true)
             if let initialLatitude { _latitude = State(initialValue: initialLatitude) }
             if let initialLongitude { _longitude = State(initialValue: initialLongitude) }
             if let initialLocationName {
-                _locationName = State(initialValue: initialLocationName)
+                _resolvedLocationName = State(initialValue: initialLocationName)
             }
         }
     }
@@ -66,7 +68,13 @@ struct CreateActivitySheet: View {
     @State private var hasLocation = false
     @State private var latitude: Double?
     @State private var longitude: Double?
-    @State private var locationName = ""
+    /// Apple Maps display name for the resolved coordinate (e.g.
+    /// "Eiffel Tower"). Set by the location search field; cleared when
+    /// the location is reset.
+    @State private var resolvedLocationName: String?
+    /// User-entered custom name. Stays empty by default — the placeholder
+    /// "Enter custom name" hints at the field.
+    @State private var customLocationName = ""
 
     // Completion dimension
     @State private var trackCompletion = false
@@ -108,25 +116,21 @@ struct CreateActivitySheet: View {
                             .font(.caption)
                     }
                 }
-
-                Section {
-                    Button(action: createActivity) {
-                        if isCreating {
-                            ProgressView()
-                                .frame(maxWidth: .infinity, alignment: .center)
-                        } else {
-                            Text("Create Activity")
-                                .frame(maxWidth: .infinity, alignment: .center)
-                        }
-                    }
-                    .disabled(!canCreate)
-                }
             }
             .navigationTitle("New Activity")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     Button("Cancel") { dismiss() }
+                }
+                ToolbarItem(placement: .topBarTrailing) {
+                    if isCreating {
+                        ProgressView()
+                    } else {
+                        Button("Create", action: createActivity)
+                            .disabled(!canCreate)
+                            .bold()
+                    }
                 }
             }
             .task {
@@ -170,7 +174,7 @@ struct CreateActivitySheet: View {
             Toggle("Has location", isOn: $hasLocation)
             if hasLocation {
                 LocationSearchField(
-                    locationName: $locationName,
+                    resolvedLocationName: $resolvedLocationName,
                     latitude: $latitude,
                     longitude: $longitude
                 )
@@ -187,21 +191,23 @@ struct CreateActivitySheet: View {
                 }
                 .disabled(isFetchingLocation)
 
-                TextField("Location name", text: $locationName)
+                TextField("Enter custom name", text: $customLocationName)
                     .textInputAutocapitalization(.words)
 
-                if let lat = latitude, let lon = longitude {
+                if resolvedLocationName != nil || (latitude != nil && longitude != nil) {
                     HStack {
                         Image(systemName: "mappin.and.ellipse")
-                            .foregroundStyle(.secondary)
-                        Text(String(format: "%.5f, %.5f", lat, lon))
-                            .font(.caption.monospacedDigit())
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(.red)
+                        Text(resolvedLocationName ?? "Current location")
+                            .font(.subheadline)
+                            .foregroundStyle(.primary)
+                            .lineLimit(1)
                         Spacer()
                         Button {
                             latitude = nil
                             longitude = nil
-                            locationName = ""
+                            resolvedLocationName = nil
+                            customLocationName = ""
                         } label: {
                             Image(systemName: "xmark.circle.fill")
                                 .foregroundStyle(.tertiary)
@@ -346,7 +352,13 @@ struct CreateActivitySheet: View {
         errorMessage = nil
 
         let cleanedNotes = notes.trimmingCharacters(in: .whitespacesAndNewlines)
-        let cleanedLocationName = locationName.trimmingCharacters(in: .whitespacesAndNewlines)
+        // Use the user's custom name when provided; otherwise fall back to
+        // the resolved Apple Maps name so the saved activity has a
+        // meaningful label.
+        let cleanedCustomName = customLocationName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let finalLocationName: String? = hasLocation
+            ? (cleanedCustomName.isEmpty ? resolvedLocationName : cleanedCustomName)
+            : nil
 
         Task {
             do {
@@ -357,7 +369,7 @@ struct CreateActivitySheet: View {
                     timestamp: hasTime ? timestamp : nil,
                     latitude: hasLocation ? latitude : nil,
                     longitude: hasLocation ? longitude : nil,
-                    locationName: hasLocation && !cleanedLocationName.isEmpty ? cleanedLocationName : nil,
+                    locationName: finalLocationName,
                     isCompleted: trackCompletion ? isCompleted : nil,
                     collectionIds: Array(selectedCollectionIds)
                 )
@@ -394,7 +406,8 @@ struct EditActivitySheet: View {
     @State private var hasLocation = false
     @State private var latitude: Double?
     @State private var longitude: Double?
-    @State private var locationName = ""
+    @State private var resolvedLocationName: String?
+    @State private var customLocationName = ""
     @State private var trackCompletion = false
     @State private var isCompleted = false
 
@@ -511,7 +524,7 @@ struct EditActivitySheet: View {
             Toggle("Has location", isOn: $hasLocation)
             if hasLocation {
                 LocationSearchField(
-                    locationName: $locationName,
+                    resolvedLocationName: $resolvedLocationName,
                     latitude: $latitude,
                     longitude: $longitude
                 )
@@ -528,21 +541,23 @@ struct EditActivitySheet: View {
                 }
                 .disabled(isFetchingLocation)
 
-                TextField("Location name", text: $locationName)
+                TextField("Enter custom name", text: $customLocationName)
                     .textInputAutocapitalization(.words)
 
-                if let lat = latitude, let lon = longitude {
+                if resolvedLocationName != nil || (latitude != nil && longitude != nil) {
                     HStack {
                         Image(systemName: "mappin.and.ellipse")
-                            .foregroundStyle(.secondary)
-                        Text(String(format: "%.5f, %.5f", lat, lon))
-                            .font(.caption.monospacedDigit())
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(.red)
+                        Text(resolvedLocationName ?? "Current location")
+                            .font(.subheadline)
+                            .foregroundStyle(.primary)
+                            .lineLimit(1)
                         Spacer()
                         Button {
                             latitude = nil
                             longitude = nil
-                            locationName = ""
+                            resolvedLocationName = nil
+                            customLocationName = ""
                         } label: {
                             Image(systemName: "xmark.circle.fill")
                                 .foregroundStyle(.tertiary)
@@ -650,7 +665,12 @@ struct EditActivitySheet: View {
         hasLocation = activity.hasLocation
         latitude = activity.latitude
         longitude = activity.longitude
-        locationName = activity.locationName ?? ""
+        // The persisted `locationName` may be either a user-typed custom
+        // name or the Apple Maps name auto-saved at create time. We can't
+        // tell which, so treat it as the custom name on edit; if the user
+        // re-searches, `resolvedLocationName` populates and takes over.
+        customLocationName = activity.locationName ?? ""
+        resolvedLocationName = nil
         trackCompletion = activity.isCompleted != nil
         isCompleted = activity.isCompleted ?? false
         selectedCollectionIds = Set(activity.collectionIds)
@@ -698,7 +718,7 @@ struct EditActivitySheet: View {
         errorMessage = nil
 
         let cleanedNotes = notes.trimmingCharacters(in: .whitespacesAndNewlines)
-        let cleanedLocationName = locationName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cleanedCustomName = customLocationName.trimmingCharacters(in: .whitespacesAndNewlines)
 
         // Build the double-optional parameters: .some(value) to set,
         // .some(nil) to explicitly clear, nil (outer) to leave untouched.
@@ -708,9 +728,17 @@ struct EditActivitySheet: View {
         let timestampParam: Date?? = hasTime ? .some(timestamp) : .some(nil)
         let latitudeParam: Double?? = hasLocation ? .some(latitude) : .some(nil)
         let longitudeParam: Double?? = hasLocation ? .some(longitude) : .some(nil)
+        // Custom name wins; otherwise fall back to the resolved Apple Maps
+        // name from a fresh search, otherwise clear the field.
         let locationNameParam: String??
-        if hasLocation && !cleanedLocationName.isEmpty {
-            locationNameParam = .some(cleanedLocationName)
+        if hasLocation {
+            if !cleanedCustomName.isEmpty {
+                locationNameParam = .some(cleanedCustomName)
+            } else if let resolvedLocationName, !resolvedLocationName.isEmpty {
+                locationNameParam = .some(resolvedLocationName)
+            } else {
+                locationNameParam = .some(nil)
+            }
         } else {
             locationNameParam = .some(nil)
         }

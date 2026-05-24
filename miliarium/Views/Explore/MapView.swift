@@ -223,7 +223,7 @@ struct MapView: View {
         HStack(spacing: 8) {
             Image(systemName: isResolvingSearch ? "hourglass" : "magnifyingglass")
                 .foregroundStyle(.secondary)
-            TextField("Search Apple Maps", text: $searchModel.query)
+            TextField("Search Location On Map", text: $searchModel.query)
                 .textInputAutocapitalization(.words)
                 .autocorrectionDisabled()
                 .submitLabel(.search)

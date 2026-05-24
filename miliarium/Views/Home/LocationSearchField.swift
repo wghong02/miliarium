@@ -87,10 +87,12 @@ final class LocationSearchModel: NSObject, MKLocalSearchCompleterDelegate {
 // MARK: - View
 
 /// SwiftUI search field that surfaces Apple Maps autocomplete suggestions
-/// and writes the selected location's name + coordinates back through
-/// bindings. Designed to live inside a `Form` section.
+/// and writes the selected location's resolved name + coordinates back
+/// through bindings. The "resolved name" is the Apple Maps display name
+/// (e.g. "Eiffel Tower") — it does NOT touch any user-entered custom
+/// name field. Designed to live inside a `Form` section.
 struct LocationSearchField: View {
-    @Binding var locationName: String
+    @Binding var resolvedLocationName: String?
     @Binding var latitude: Double?
     @Binding var longitude: Double?
 
@@ -103,7 +105,7 @@ struct LocationSearchField: View {
 
     var body: some View {
         Group {
-            TextField("Search Apple Maps (e.g. Mount Everest)", text: $searchModel.query)
+            TextField("Search Location", text: $searchModel.query)
                 .textInputAutocapitalization(.words)
                 .autocorrectionDisabled()
                 .submitLabel(.search)
@@ -162,7 +164,7 @@ struct LocationSearchField: View {
             do {
                 let item = try await searchModel.resolve(result)
                 let coord = LocationSearchModel.coordinate(of: item)
-                locationName = item.name ?? result.title
+                resolvedLocationName = item.name ?? result.title
                 latitude = coord.latitude
                 longitude = coord.longitude
                 searchModel.clear()
