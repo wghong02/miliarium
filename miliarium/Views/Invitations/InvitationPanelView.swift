@@ -65,7 +65,7 @@ struct InvitationItemView: View {
                 VStack(alignment: .leading, spacing: 4) {
                     Text(invitation.progressItemTitle)
                         .font(.subheadline.weight(.semibold))
-                    Text("From: \(invitation.fromUserEmail)")
+                    Text("From: \(invitationVM.displayString(for: invitation.fromUserId))")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -99,31 +99,22 @@ struct InvitationItemView: View {
 
     @ViewBuilder
     private var statusBadge: some View {
-        switch invitation.status {
-        case .pending:
-            Text("Pending")
-                .font(.caption.weight(.semibold))
-                .padding(.horizontal, 8)
-                .padding(.vertical, 4)
-                .background(Color.orange.opacity(0.2))
-                .foregroundStyle(.orange)
-                .cornerRadius(4)
-        case .accepted:
-            Text("Accepted")
-                .font(.caption.weight(.semibold))
-                .padding(.horizontal, 8)
-                .padding(.vertical, 4)
-                .background(Color.green.opacity(0.2))
-                .foregroundStyle(.green)
-                .cornerRadius(4)
-        case .declined:
-            Text("Declined")
-                .font(.caption.weight(.semibold))
-                .padding(.horizontal, 8)
-                .padding(.vertical, 4)
-                .background(Color.red.opacity(0.2))
-                .foregroundStyle(.red)
-                .cornerRadius(4)
+        let (label, color) = badgeStyle(for: invitation.status)
+        Text(label)
+            .font(.caption.weight(.semibold))
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(color.opacity(0.2))
+            .foregroundStyle(color)
+            .cornerRadius(4)
+    }
+
+    private func badgeStyle(for status: InvitationStatus) -> (String, Color) {
+        switch status {
+        case .pending:  return ("Pending", .orange)
+        case .accepted: return ("Accepted", .green)
+        case .declined: return ("Declined", .red)
+        case .revoked:  return ("Revoked", .gray)
         }
     }
 }

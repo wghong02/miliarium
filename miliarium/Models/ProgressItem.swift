@@ -27,6 +27,16 @@ struct ProgressContent: Hashable, Sendable, Codable {
     }
 }
 
+/// A user's relationship to a progress item. Stored on the link doc
+/// (`users/{uid}/progressLinks/{progressItemId}.role`) as a string for
+/// future extensibility (e.g. `viewer`, `editor`). When the field is
+/// missing on older link docs, callers fall back to inferring from
+/// `progressItem.ownerUserId`.
+enum ProgressRole: String, Sendable, Codable, Hashable {
+    case owner
+    case collaborator
+}
+
 struct ProgressItem: Identifiable, Hashable, Sendable {
     let id: String
     var title: String
@@ -47,5 +57,12 @@ struct ProgressItem: Identifiable, Hashable, Sendable {
         let content = ProgressContent.fromFirestore(data["content"])
         let ownerUserId = data["ownerUserId"] as? String ?? ""
         self.init(id: document.documentID, title: title, content: content, ownerUserId: ownerUserId)
+    }
+
+    /// Inference fallback used when the user's progress link is missing the
+    /// `role` field (e.g. legacy link docs created before the role field
+    /// was introduced).
+    nonisolated func inferredRole(forUserId userId: String) -> ProgressRole {
+        ownerUserId == userId ? .owner : .collaborator
     }
 }

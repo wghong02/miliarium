@@ -12,17 +12,26 @@ struct CreateActivitySheet: View {
     let progressItemId: String
     let initialTimestamp: Date?
     let initialHasLocation: Bool
+    let initialLatitude: Double?
+    let initialLongitude: Double?
+    let initialLocationName: String?
     var onActivityCreated: () -> Void = {}
 
     init(
         progressItemId: String,
         initialTimestamp: Date? = nil,
         initialHasLocation: Bool = false,
+        initialLatitude: Double? = nil,
+        initialLongitude: Double? = nil,
+        initialLocationName: String? = nil,
         onActivityCreated: @escaping () -> Void = {}
     ) {
         self.progressItemId = progressItemId
         self.initialTimestamp = initialTimestamp
         self.initialHasLocation = initialHasLocation
+        self.initialLatitude = initialLatitude
+        self.initialLongitude = initialLongitude
+        self.initialLocationName = initialLocationName
         self.onActivityCreated = onActivityCreated
 
         // When opened from the Calendar tab we want the time dimension
@@ -32,9 +41,16 @@ struct CreateActivitySheet: View {
             _timestamp = State(initialValue: initialTimestamp)
         }
         // When opened from the Map tab we want the location dimension
-        // already enabled. The current location is auto-fetched in .task.
-        if initialHasLocation {
+        // already enabled. If coordinates are also passed (e.g. the user
+        // tapped a search-result preview pin), we pre-fill them and skip
+        // the auto current-location fetch.
+        if initialHasLocation || initialLatitude != nil {
             _hasLocation = State(initialValue: true)
+            if let initialLatitude { _latitude = State(initialValue: initialLatitude) }
+            if let initialLongitude { _longitude = State(initialValue: initialLongitude) }
+            if let initialLocationName {
+                _locationName = State(initialValue: initialLocationName)
+            }
         }
     }
 
@@ -115,6 +131,8 @@ struct CreateActivitySheet: View {
             }
             .task {
                 await loadCollections()
+                // Auto-fetch current location only when the caller asked for
+                // the location dimension AND didn't pre-fill coordinates.
                 if initialHasLocation && latitude == nil {
                     fetchCurrentLocation()
                 }
@@ -151,6 +169,12 @@ struct CreateActivitySheet: View {
         Section("Location") {
             Toggle("Has location", isOn: $hasLocation)
             if hasLocation {
+                LocationSearchField(
+                    locationName: $locationName,
+                    latitude: $latitude,
+                    longitude: $longitude
+                )
+
                 Button(action: fetchCurrentLocation) {
                     HStack {
                         if isFetchingLocation {
@@ -163,7 +187,7 @@ struct CreateActivitySheet: View {
                 }
                 .disabled(isFetchingLocation)
 
-                TextField("Location name (optional)", text: $locationName)
+                TextField("Location name", text: $locationName)
                     .textInputAutocapitalization(.words)
 
                 if let lat = latitude, let lon = longitude {
@@ -173,6 +197,16 @@ struct CreateActivitySheet: View {
                         Text(String(format: "%.5f, %.5f", lat, lon))
                             .font(.caption.monospacedDigit())
                             .foregroundStyle(.secondary)
+                        Spacer()
+                        Button {
+                            latitude = nil
+                            longitude = nil
+                            locationName = ""
+                        } label: {
+                            Image(systemName: "xmark.circle.fill")
+                                .foregroundStyle(.tertiary)
+                        }
+                        .buttonStyle(.plain)
                     }
                 }
             }
@@ -227,7 +261,7 @@ struct CreateActivitySheet: View {
                                     .cornerRadius(3)
                             }
                             Spacer()
-                            if collection.isFavourite {
+                            if collection.isFavorite {
                                 Image(systemName: "star.fill")
                                     .font(.caption)
                                     .foregroundStyle(.yellow)
@@ -476,6 +510,12 @@ struct EditActivitySheet: View {
         Section("Location") {
             Toggle("Has location", isOn: $hasLocation)
             if hasLocation {
+                LocationSearchField(
+                    locationName: $locationName,
+                    latitude: $latitude,
+                    longitude: $longitude
+                )
+
                 Button(action: fetchCurrentLocation) {
                     HStack {
                         if isFetchingLocation {
@@ -488,7 +528,7 @@ struct EditActivitySheet: View {
                 }
                 .disabled(isFetchingLocation)
 
-                TextField("Location name (optional)", text: $locationName)
+                TextField("Location name", text: $locationName)
                     .textInputAutocapitalization(.words)
 
                 if let lat = latitude, let lon = longitude {
@@ -498,6 +538,16 @@ struct EditActivitySheet: View {
                         Text(String(format: "%.5f, %.5f", lat, lon))
                             .font(.caption.monospacedDigit())
                             .foregroundStyle(.secondary)
+                        Spacer()
+                        Button {
+                            latitude = nil
+                            longitude = nil
+                            locationName = ""
+                        } label: {
+                            Image(systemName: "xmark.circle.fill")
+                                .foregroundStyle(.tertiary)
+                        }
+                        .buttonStyle(.plain)
                     }
                 }
             }
@@ -552,7 +602,7 @@ struct EditActivitySheet: View {
                                     .cornerRadius(3)
                             }
                             Spacer()
-                            if collection.isFavourite {
+                            if collection.isFavorite {
                                 Image(systemName: "star.fill")
                                     .font(.caption)
                                     .foregroundStyle(.yellow)

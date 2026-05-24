@@ -15,15 +15,15 @@ struct CollectionsSection: View {
     @State private var listenerInitialized = false
     @State private var showCreateCollection = false
     @State private var showCreateActivity = false
-    @State private var showOnlyFavourites = false
+    @State private var showOnlyFavorites = false
 
     private var visibleCollections: [ActivityCollection] {
-        let filtered = showOnlyFavourites
-            ? collections.filter { $0.isFavourite }
+        let filtered = showOnlyFavorites
+            ? collections.filter { $0.isFavorite }
             : collections
-        // Favourites first, then default, then created order.
+        // Favorites first, then default, then created order.
         return filtered.sorted { lhs, rhs in
-            if lhs.isFavourite != rhs.isFavourite { return lhs.isFavourite }
+            if lhs.isFavorite != rhs.isFavorite { return lhs.isFavorite }
             if lhs.isDefault != rhs.isDefault { return lhs.isDefault }
             return lhs.createdAt < rhs.createdAt
         }
@@ -40,7 +40,7 @@ struct CollectionsSection: View {
 
             if visibleCollections.isEmpty {
                 VStack(spacing: 8) {
-                    Text(showOnlyFavourites ? "No favourite collections" : "No collections yet")
+                    Text(showOnlyFavorites ? "No favorite collections" : "No collections yet")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                     Text("Tap + to create one")
@@ -142,13 +142,13 @@ struct CollectionsSection: View {
         HStack(spacing: 8) {
             FilterButton(
                 label: "All",
-                isSelected: !showOnlyFavourites,
-                action: { showOnlyFavourites = false }
+                isSelected: !showOnlyFavorites,
+                action: { showOnlyFavorites = false }
             )
             FilterButton(
-                label: "Favourites",
-                isSelected: showOnlyFavourites,
-                action: { showOnlyFavourites = true }
+                label: "Favorites",
+                isSelected: showOnlyFavorites,
+                action: { showOnlyFavorites = true }
             )
             Spacer()
         }
@@ -206,7 +206,7 @@ struct CollectionRowView: View {
 
     var body: some View {
         HStack(spacing: 10) {
-            // Favourite / default indicator
+            // Favorite / default indicator
             Image(systemName: leadingIcon)
                 .font(.subheadline.weight(.semibold))
                 .foregroundStyle(leadingColor)
@@ -265,12 +265,12 @@ struct CollectionRowView: View {
     }
 
     private var leadingIcon: String {
-        if collection.isFavourite { return "star.fill" }
+        if collection.isFavorite { return "star.fill" }
         return "folder.fill"
     }
 
     private var leadingColor: Color {
-        if collection.isFavourite { return .yellow }
+        if collection.isFavorite { return .yellow }
         return .blue
     }
 

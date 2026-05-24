@@ -31,13 +31,13 @@ class ActivityCollectionService {
         progressItemId: String,
         name: String,
         notes: String? = nil,
-        isFavourite: Bool = false,
+        isFavorite: Bool = false,
         isDefault: Bool = false
     ) async throws -> ActivityCollection {
         let collection = ActivityCollection(
             name: name,
             notes: notes,
-            isFavourite: isFavourite,
+            isFavorite: isFavorite,
             isDefault: isDefault
         )
 
@@ -79,14 +79,14 @@ class ActivityCollectionService {
         progressItemId: String,
         name: String? = nil,
         notes: String?? = nil,
-        isFavourite: Bool? = nil
+        isFavorite: Bool? = nil
     ) async throws {
         var updated = collection
         updated.updatedAt = Date()
 
         if let name { updated.name = name }
         if let notes { updated.notes = notes }
-        if let isFavourite { updated.isFavourite = isFavourite }
+        if let isFavorite { updated.isFavorite = isFavorite }
 
         let ref = collectionsRef(for: progressItemId).document(collection.id)
         try await ref.setData(updated.asFirestoreMap())

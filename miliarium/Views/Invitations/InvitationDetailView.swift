@@ -26,7 +26,10 @@ struct InvitationDetailView: View {
                 .cornerRadius(12)
 
                 VStack(alignment: .leading, spacing: 12) {
-                    InformationRow(label: "From", value: invitation.fromUserEmail)
+                    InformationRow(
+                        label: "From",
+                        value: invitationVM.displayString(for: invitation.fromUserId)
+                    )
                     Divider()
                     InformationRow(label: "Project", value: invitation.progressItemTitle)
                     Divider()
@@ -123,9 +126,7 @@ struct InformationRow: View {
     InvitationDetailView(
         invitation: Invitation(
             fromUserId: "user123",
-            fromUserEmail: "friend@example.com",
             toUserId: "user456",
-            toUserEmail: "otherfriend@example.com",
             progressItemId: "progress123",
             progressItemTitle: "Learn Swift",
             status: .pending

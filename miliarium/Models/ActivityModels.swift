@@ -160,7 +160,7 @@ struct ActivityCollection: Identifiable, Hashable, Sendable, Codable {
     var notes: String?
 
     /// User-facing pinning flag used for sorting / surfacing in the UI.
-    var isFavourite: Bool
+    var isFavorite: Bool
 
     /// The auto-created starter collection for a progress. Used to find the
     /// fallback target when no collection is selected.
@@ -184,7 +184,7 @@ struct ActivityCollection: Identifiable, Hashable, Sendable, Codable {
         id: String = UUID().uuidString,
         name: String,
         notes: String? = nil,
-        isFavourite: Bool = false,
+        isFavorite: Bool = false,
         isDefault: Bool = false,
         activityIds: [String] = [],
         stats: ActivityCollectionStats = .empty,
@@ -195,7 +195,7 @@ struct ActivityCollection: Identifiable, Hashable, Sendable, Codable {
         self.id = id
         self.name = name
         self.notes = notes
-        self.isFavourite = isFavourite
+        self.isFavorite = isFavorite
         self.isDefault = isDefault
         self.activityIds = activityIds
         self.stats = stats
@@ -228,7 +228,7 @@ struct ActivityCollection: Identifiable, Hashable, Sendable, Codable {
             id: document.documentID,
             name: name,
             notes: data["notes"] as? String,
-            isFavourite: data["isFavourite"] as? Bool ?? false,
+            isFavorite: data["isFavorite"] as? Bool ?? false,
             isDefault: data["isDefault"] as? Bool ?? false,
             activityIds: data["activityIds"] as? [String] ?? [],
             stats: stats,
@@ -255,7 +255,7 @@ struct ActivityCollection: Identifiable, Hashable, Sendable, Codable {
 
         var map: [String: Any] = [
             "name": name,
-            "isFavourite": isFavourite,
+            "isFavorite": isFavorite,
             "isDefault": isDefault,
             "activityIds": activityIds,
             "stats": statsMap,

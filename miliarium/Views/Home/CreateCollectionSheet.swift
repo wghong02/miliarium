@@ -12,7 +12,7 @@ struct CreateCollectionSheet: View {
 
     @State private var name = ""
     @State private var notes = ""
-    @State private var isFavourite = false
+    @State private var isFavorite = false
     @State private var isCreating = false
     @State private var errorMessage: String?
 
@@ -33,7 +33,7 @@ struct CreateCollectionSheet: View {
                 }
 
                 Section {
-                    Toggle("Mark as favourite", isOn: $isFavourite)
+                    Toggle("Mark as favorite", isOn: $isFavorite)
                 }
 
                 if let error = errorMessage {
@@ -80,7 +80,7 @@ struct CreateCollectionSheet: View {
                     notes: notes.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                         ? nil
                         : notes.trimmingCharacters(in: .whitespacesAndNewlines),
-                    isFavourite: isFavourite,
+                    isFavorite: isFavorite,
                     isDefault: false
                 )
 
@@ -100,7 +100,7 @@ struct CreateCollectionSheet: View {
 }
 
 /// Editable sheet for an existing collection. Shows metadata (name, notes,
-/// favourite), a "Refresh stats" action, and delete (hidden for default).
+/// favorite), a "Refresh stats" action, and delete (hidden for default).
 struct EditCollectionSheet: View {
     @Environment(\.dismiss) private var dismiss
 
@@ -110,7 +110,7 @@ struct EditCollectionSheet: View {
 
     @State private var name: String = ""
     @State private var notes: String = ""
-    @State private var isFavourite: Bool = false
+    @State private var isFavorite: Bool = false
     @State private var isUpdating = false
     @State private var isRefreshingStats = false
     @State private var showDeleteAlert = false
@@ -148,7 +148,7 @@ struct EditCollectionSheet: View {
                 }
 
                 Section {
-                    Toggle("Mark as favourite", isOn: $isFavourite)
+                    Toggle("Mark as favorite", isOn: $isFavorite)
                 }
 
                 Section("Stats") {
@@ -226,7 +226,7 @@ struct EditCollectionSheet: View {
             .onAppear {
                 name = collection.name
                 notes = collection.notes ?? ""
-                isFavourite = collection.isFavourite
+                isFavorite = collection.isFavorite
                 currentStats = collection.stats
                 lastStatsUpdate = collection.statsUpdatedAt
                 memberActivityIds = Set(collection.activityIds)
@@ -276,7 +276,7 @@ struct EditCollectionSheet: View {
                     progressItemId: progressItemId,
                     name: trimmedName,
                     notes: notesParam,
-                    isFavourite: isFavourite
+                    isFavorite: isFavorite
                 )
                 await MainActor.run {
                     isUpdating = false
@@ -401,7 +401,10 @@ struct EditCollectionSheet: View {
                 progressItemId: progressItemId
             )
             await MainActor.run {
-                memberActivityIds.remove(activity.id)
+                // `Set.remove` returns the removed element; explicitly drop
+                // it so the closure's inferred return type is `Void` and
+                // `MainActor.run` doesn't yield an unused result.
+                _ = memberActivityIds.remove(activity.id)
             }
         } catch {
             await MainActor.run {
