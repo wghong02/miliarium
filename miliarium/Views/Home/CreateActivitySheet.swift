@@ -146,10 +146,25 @@ struct CreateActivitySheet: View {
 
     // MARK: - Sections
 
+    @ViewBuilder
     private var detailsSection: some View {
-        Section("Activity") {
+        Section {
             TextField("Title", text: $title)
                 .textInputAutocapitalization(.sentences)
+                .onChange(of: title) { _, newValue in
+                    if newValue.count > TextLimits.name {
+                        title = String(newValue.prefix(TextLimits.name))
+                    }
+                }
+        } header: {
+            HStack {
+                Text("Title")
+                Spacer()
+                CharacterCounter(count: title.count, limit: TextLimits.name)
+            }
+        }
+
+        Section("Notes") {
             TextField("Notes (optional)", text: $notes, axis: .vertical)
                 .textInputAutocapitalization(.sentences)
                 .lineLimit(2...5)
@@ -191,8 +206,19 @@ struct CreateActivitySheet: View {
                 }
                 .disabled(isFetchingLocation)
 
-                TextField("Enter custom name", text: $customLocationName)
-                    .textInputAutocapitalization(.words)
+                HStack {
+                    TextField("Enter custom name", text: $customLocationName)
+                        .textInputAutocapitalization(.words)
+                        .onChange(of: customLocationName) { _, newValue in
+                            if newValue.count > TextLimits.name {
+                                customLocationName = String(newValue.prefix(TextLimits.name))
+                            }
+                        }
+                    CharacterCounter(
+                        count: customLocationName.count,
+                        limit: TextLimits.name
+                    )
+                }
 
                 if resolvedLocationName != nil || (latitude != nil && longitude != nil) {
                     HStack {
@@ -496,10 +522,25 @@ struct EditActivitySheet: View {
 
     // MARK: - Sections (same shape as create)
 
+    @ViewBuilder
     private var detailsSection: some View {
-        Section("Activity") {
+        Section {
             TextField("Title", text: $title)
                 .textInputAutocapitalization(.sentences)
+                .onChange(of: title) { _, newValue in
+                    if newValue.count > TextLimits.name {
+                        title = String(newValue.prefix(TextLimits.name))
+                    }
+                }
+        } header: {
+            HStack {
+                Text("Title")
+                Spacer()
+                CharacterCounter(count: title.count, limit: TextLimits.name)
+            }
+        }
+
+        Section("Notes") {
             TextField("Notes (optional)", text: $notes, axis: .vertical)
                 .textInputAutocapitalization(.sentences)
                 .lineLimit(2...5)
@@ -541,8 +582,19 @@ struct EditActivitySheet: View {
                 }
                 .disabled(isFetchingLocation)
 
-                TextField("Enter custom name", text: $customLocationName)
-                    .textInputAutocapitalization(.words)
+                HStack {
+                    TextField("Enter custom name", text: $customLocationName)
+                        .textInputAutocapitalization(.words)
+                        .onChange(of: customLocationName) { _, newValue in
+                            if newValue.count > TextLimits.name {
+                                customLocationName = String(newValue.prefix(TextLimits.name))
+                            }
+                        }
+                    CharacterCounter(
+                        count: customLocationName.count,
+                        limit: TextLimits.name
+                    )
+                }
 
                 if resolvedLocationName != nil || (latitude != nil && longitude != nil) {
                     HStack {

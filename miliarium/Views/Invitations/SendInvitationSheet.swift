@@ -17,12 +17,26 @@ struct SendInvitationSheet: View {
     var body: some View {
         NavigationStack {
             Form {
-                Section("Recipient") {
+                Section {
                     TextField("Email address", text: $recipientEmail)
                         .textContentType(.emailAddress)
                         .keyboardType(.emailAddress)
                         .autocapitalization(.none)
                         .disabled(isLoading)
+                        .onChange(of: recipientEmail) { _, newValue in
+                            if newValue.count > TextLimits.name {
+                                recipientEmail = String(newValue.prefix(TextLimits.name))
+                            }
+                        }
+                } header: {
+                    HStack {
+                        Text("Recipient")
+                        Spacer()
+                        CharacterCounter(
+                            count: recipientEmail.count,
+                            limit: TextLimits.name
+                        )
+                    }
                 }
 
                 if let error = errorMessage {

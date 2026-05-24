@@ -487,10 +487,17 @@ Test scope tags:
 **Expectations** (one test per form)
 - The action button is disabled when its required text field is empty or whitespace-only.
 - The action button is disabled while a save is in flight.
-- A character-limit counter (where applicable) turns red/orange when at the limit and the action button locks past the limit.
+- A character-limit counter appears wherever a cap is enforced. Two styles:
+  - **Truncating** — input is silently truncated at the cap; the counter goes **orange** at the cap. Used for short identifier-like fields (name, title, recipient, custom location name).
+  - **Locking** — input may exceed the cap and the form locks its action; the counter goes **red** when over the cap. Used for the long-form summary field.
 
-Forms with explicit character limits:
-| Form | Field | Limit |
-|---|---|---|
-| Edit Summary | Summary | 120 |
-| Edit Profile | Display name | 40 |
+Forms with explicit character limits (all `name`-style limits share one constant — `TextLimits.name = 40`):
+
+| Form | Field | Limit | Style | Counter position |
+|---|---|---|---|---|
+| Edit Summary | Summary | 120 (`TextLimits.summary`) | Locking | Section header (top right) |
+| Edit Profile | Display name | 40 (`TextLimits.name`) | Truncating | Section header (top right) |
+| Create Progress | Progress name | 40 | Truncating | Section header (top right) |
+| Send Invitation | Recipient email | 40 | Truncating | Section header (top right) |
+| Create / Edit Activity | Title | 40 | Truncating | Section header (top right) |
+| Create / Edit Activity | Location custom name | 40 | Truncating | Inline (right of field, same row) |

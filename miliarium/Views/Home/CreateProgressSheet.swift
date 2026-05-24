@@ -14,7 +14,20 @@ struct CreateProgressSheet: View {
     var body: some View {
         NavigationStack {
             Form {
-                TextField("Progress name", text: $title)
+                Section {
+                    TextField("Progress name", text: $title)
+                        .onChange(of: title) { _, newValue in
+                            if newValue.count > TextLimits.name {
+                                title = String(newValue.prefix(TextLimits.name))
+                            }
+                        }
+                } header: {
+                    HStack {
+                        Text("Name")
+                        Spacer()
+                        CharacterCounter(count: title.count, limit: TextLimits.name)
+                    }
+                }
                 if let lastError {
                     Text(lastError)
                         .font(.footnote)

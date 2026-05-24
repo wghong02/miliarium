@@ -12,8 +12,6 @@ struct ProfileSectionView: View {
     @State private var errorMessage: String?
     @State private var showSavedConfirmation = false
 
-    private let nameCharacterLimit = 40
-
     private var trimmedName: String {
         name.trimmingCharacters(in: .whitespacesAndNewlines)
     }
@@ -76,11 +74,10 @@ struct ProfileSectionView: View {
                     .textInputAutocapitalization(.words)
                     .disabled(isLoading || isSaving)
                     .onChange(of: name) { _, newValue in
-                        // Enforce the 40-character cap silently as the
-                        // user types; truncate any excess (e.g. from
-                        // paste).
-                        if newValue.count > nameCharacterLimit {
-                            name = String(newValue.prefix(nameCharacterLimit))
+                        // Enforce the cap silently as the user types;
+                        // truncate any excess (e.g. from paste).
+                        if newValue.count > TextLimits.name {
+                            name = String(newValue.prefix(TextLimits.name))
                         }
                     }
 
@@ -104,10 +101,7 @@ struct ProfileSectionView: View {
             HStack {
                 Text("Display name")
                 Spacer()
-                Text("\(name.count)/\(nameCharacterLimit)")
-                    .font(.caption.monospacedDigit())
-                    .foregroundStyle(name.count >= nameCharacterLimit ? .orange : .secondary)
-                    .textCase(nil)
+                CharacterCounter(count: name.count, limit: TextLimits.name)
             }
         }
     }
