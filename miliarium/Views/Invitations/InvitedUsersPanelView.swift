@@ -8,6 +8,7 @@ struct InvitedUsersPanelView: View {
 
     @Environment(AuthViewModel.self) private var authVM
     @State private var invitedUsers: [InvitedUserInfo] = []
+    @State private var userCache: [String: AppUser] = [:]
     @State private var isLoading = false
     @State private var errorMessage: String?
     @State private var listener: ListenerRegistration?
@@ -44,7 +45,11 @@ struct InvitedUsersPanelView: View {
                 ScrollView {
                     VStack(spacing: 8) {
                         ForEach(invitedUsers) { userInfo in
-                            InvitedUserItemView(userInfo: userInfo, progressItemId: progressItemId)
+                            InvitedUserItemView(
+                                userInfo: userInfo,
+                                progressItemId: progressItemId,
+                                displayName: displayString(for: userInfo.userId)
+                            )
                         }
                     }
                 }
@@ -76,49 +81,23 @@ struct InvitedUsersPanelView: View {
         guard let userId = authVM.user?.uid else { return }
 
         isLoading = true
-        print("[InvitedUsersPanel] Setting up listener for progress: \(progressItemId)")
-
-        let query = Firestore.firestore()
-            .collection("invitations")
-            .whereField("fromUserId", isEqualTo: userId)
-            .whereField("progressItemId", isEqualTo: progressItemId)
-            .order(by: "createdAt", descending: true)
-
-        listener = query.addSnapshotListener { snapshot, error in
+        listener = invitationService.setProgressInvitationsListener(
+            for: progressItemId
+        ) { invitations in
+            // Listener fires off-MainActor; hop before mutating @State.
             Task { @MainActor in
-
-                if let error {
-                    print("[InvitedUsersPanel] Listener error: \(error.localizedDescription)")
-                    self.isLoading = false
-                    self.errorMessage = error.localizedDescription
-                    return
-                }
-
-                guard let snapshot else {
-                    print("[InvitedUsersPanel] Snapshot is nil")
-                    self.isLoading = false
-                    return
-                }
-
-                print("[InvitedUsersPanel] Received \(snapshot.documents.count) invitations")
                 self.errorMessage = nil
-
-                var users: [InvitedUserInfo] = []
-                for doc in snapshot.documents {
-                    if let invitation = Invitation(document: doc) {
-                        let userInfo = InvitedUserInfo(
-                            userId: invitation.toUserId,
-                            email: invitation.toUserEmail,
-                            status: invitation.status,
-                            invitationId: invitation.id
+                self.invitedUsers = invitations
+                    .filter { $0.fromUserId == userId }
+                    .map {
+                        InvitedUserInfo(
+                            userId: $0.toUserId,
+                            status: $0.status,
+                            invitationId: $0.id
                         )
-                        users.append(userInfo)
                     }
-                }
-
-                self.invitedUsers = users
-                print("[InvitedUsersPanel] Loaded \(users.count) invited users")
                 self.isLoading = false
+                await self.cacheUsers(forIds: self.invitedUsers.map { $0.userId })
             }
         }
     }
@@ -127,31 +106,38 @@ struct InvitedUsersPanelView: View {
     private func refreshInvitedUsers() async {
         guard let userId = authVM.user?.uid else { return }
         do {
-            print("[InvitedUsersPanel] Manually refreshing invited users")
-            let snapshot = try await Firestore.firestore()
-                .collection("invitations")
-                .whereField("fromUserId", isEqualTo: userId)
-                .whereField("progressItemId", isEqualTo: progressItemId)
-                .getDocuments()
-
-            var users: [InvitedUserInfo] = []
-            for doc in snapshot.documents {
-                if let invitation = Invitation(document: doc) {
-                    let userInfo = InvitedUserInfo(
-                        userId: invitation.toUserId,
-                        email: invitation.toUserEmail,
-                        status: invitation.status,
-                        invitationId: invitation.id
+            let invitations = try await invitationService.fetchInvitations(
+                forProgress: progressItemId
+            )
+            self.invitedUsers = invitations
+                .filter { $0.fromUserId == userId }
+                .map {
+                    InvitedUserInfo(
+                        userId: $0.toUserId,
+                        status: $0.status,
+                        invitationId: $0.id
                     )
-                    users.append(userInfo)
                 }
-            }
-
-            self.invitedUsers = users
-            print("[InvitedUsersPanel] Refreshed \(users.count) invited users")
+            await cacheUsers(forIds: self.invitedUsers.map { $0.userId })
         } catch {
             self.errorMessage = error.localizedDescription
-            print("[InvitedUsersPanel] Refresh error: \(error.localizedDescription)")
+        }
+    }
+
+    private func displayString(for userId: String) -> String {
+        userCache[userId]?.displayString ?? "Loading…"
+    }
+
+    private func cacheUsers(forIds ids: [String]) async {
+        let missing = Array(Set(ids).subtracting(userCache.keys))
+        guard !missing.isEmpty else { return }
+        do {
+            let users = try await userService.fetchUsers(ids: missing)
+            for user in users {
+                userCache[user.id] = user
+            }
+        } catch {
+            // Best-effort enrichment; rows keep showing "Loading…".
         }
     }
 }
@@ -159,7 +145,6 @@ struct InvitedUsersPanelView: View {
 struct InvitedUserInfo: Identifiable {
     let id = UUID()
     let userId: String
-    let email: String
     let status: InvitationStatus
     let invitationId: String
 }
@@ -167,6 +152,7 @@ struct InvitedUserInfo: Identifiable {
 struct InvitedUserItemView: View {
     let userInfo: InvitedUserInfo
     let progressItemId: String
+    let displayName: String
 
     @State private var isRevoking = false
 
@@ -174,25 +160,27 @@ struct InvitedUserItemView: View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(userInfo.email)
+                    Text(displayName)
                         .font(.subheadline.weight(.semibold))
                 }
                 Spacer()
                 statusBadge
             }
 
-            HStack(spacing: 8) {
-                Button(role: .destructive) {
-                    revokeInvitation()
-                } label: {
-                    HStack {
-                        Image(systemName: "xmark")
-                        Text("Revoke")
+            if userInfo.status == .pending {
+                HStack(spacing: 8) {
+                    Button(role: .destructive) {
+                        revokeInvitation()
+                    } label: {
+                        HStack {
+                            Image(systemName: "xmark")
+                            Text("Revoke")
+                        }
+                        .frame(maxWidth: .infinity)
                     }
-                    .frame(maxWidth: .infinity)
+                    .buttonStyle(.bordered)
+                    .disabled(isRevoking)
                 }
-                .buttonStyle(.bordered)
-                .disabled(isRevoking)
             }
         }
         .padding(8)
@@ -202,31 +190,22 @@ struct InvitedUserItemView: View {
 
     @ViewBuilder
     private var statusBadge: some View {
-        switch userInfo.status {
-        case .pending:
-            Text("Pending")
-                .font(.caption.weight(.semibold))
-                .padding(.horizontal, 8)
-                .padding(.vertical, 4)
-                .background(Color.orange.opacity(0.2))
-                .foregroundStyle(.orange)
-                .cornerRadius(4)
-        case .accepted:
-            Text("Accepted")
-                .font(.caption.weight(.semibold))
-                .padding(.horizontal, 8)
-                .padding(.vertical, 4)
-                .background(Color.green.opacity(0.2))
-                .foregroundStyle(.green)
-                .cornerRadius(4)
-        case .declined:
-            Text("Declined")
-                .font(.caption.weight(.semibold))
-                .padding(.horizontal, 8)
-                .padding(.vertical, 4)
-                .background(Color.red.opacity(0.2))
-                .foregroundStyle(.red)
-                .cornerRadius(4)
+        let (label, color) = badgeStyle(for: userInfo.status)
+        Text(label)
+            .font(.caption.weight(.semibold))
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(color.opacity(0.2))
+            .foregroundStyle(color)
+            .cornerRadius(4)
+    }
+
+    private func badgeStyle(for status: InvitationStatus) -> (String, Color) {
+        switch status {
+        case .pending:  return ("Pending", .orange)
+        case .accepted: return ("Accepted", .green)
+        case .declined: return ("Declined", .red)
+        case .revoked:  return ("Revoked", .gray)
         }
     }
 
@@ -234,10 +213,10 @@ struct InvitedUserItemView: View {
         isRevoking = true
         Task {
             do {
-                try await invitationService.deleteInvitation(userInfo.invitationId)
-                print("[InvitedUserItem] Revoked invitation: \(userInfo.invitationId)")
+                try await invitationService.revokeInvitation(userInfo.invitationId)
             } catch {
-                print("[InvitedUserItem] Error revoking invitation: \(error.localizedDescription)")
+                // Surface failures inline once we have a binding for it;
+                // for now, just stop the spinner.
             }
             await MainActor.run {
                 isRevoking = false

@@ -2,7 +2,8 @@ import Foundation
 import Observation
 import FirebaseFirestore
 
-// Separate non-MainActor class to manage listener lifecycle
+/// Non-MainActor wrapper so the listener can be removed from `deinit`
+/// (which is `nonisolated`) without crossing actor boundaries.
 private final class ListenerManager {
     var listener: ListenerRegistration?
 
@@ -28,14 +29,19 @@ final class InvitationViewModel {
     private(set) var isLoading = false
     private(set) var errorMessage: String?
 
+    /// Cache of resolved sender/recipient profiles, keyed by `userId`.
+    /// Used by views to render "name or email" without per-row queries.
+    private(set) var userCache: [String: AppUser] = [:]
+
     private var userId: String?
-    private var listenerManager = ListenerManager()
+    private let listenerManager = ListenerManager()
 
     @MainActor
     func setUserId(_ id: String?) {
         listenerManager.removeListener()
         userId = id
         invitations = []
+        userCache = [:]
         errorMessage = nil
 
         guard let id else {
@@ -44,69 +50,20 @@ final class InvitationViewModel {
         }
 
         isLoading = true
-        userId = id
-        print("[InvitationVM] Setting up listener for user: \(id)")
 
-        // Set up real-time listener
-        let query = Firestore.firestore()
-            .collection("invitations")
-            .whereField("toUserId", isEqualTo: id)
-            .order(by: "createdAt", descending: true)
-
-        let newListener = query.addSnapshotListener { [weak self] snapshot, error in
-            Task { @MainActor in
+        // Service-owned listener; the initial snapshot Firestore delivers
+        // populates `invitations`, so no separate "initial fetch" is needed.
+        let listener = invitationService.setReceivedInvitationsListener(for: id) { [weak self] invitations in
+            Task { @MainActor [weak self] in
                 guard let self else { return }
-
-                if let error {
-                    print("[InvitationVM] Listener error: \(error.localizedDescription)")
-                    self.isLoading = false
-                    self.errorMessage = error.localizedDescription
-                    return
-                }
-
-                guard let snapshot else {
-                    print("[InvitationVM] Snapshot is nil")
-                    self.isLoading = false
-                    return
-                }
-
-                print("[InvitationVM] Received \(snapshot.documents.count) invitations from listener")
+                self.invitations = invitations
                 self.errorMessage = nil
-                self.invitations = snapshot.documents.compactMap { doc in
-                    if let invitation = Invitation(document: doc) {
-                        print("[InvitationVM] Successfully parsed invitation: \(doc.documentID)")
-                        return invitation
-                    } else {
-                        print("[InvitationVM] Failed to parse invitation: \(doc.documentID)")
-                        print("[InvitationVM] Document data: \(doc.data())")
-                        return nil
-                    }
-                }
-                print("[InvitationVM] Loaded \(self.invitations.count) invitations successfully")
                 self.isLoading = false
+                // Resolve sender profiles for display.
+                await self.cacheUsers(forIds: invitations.map { $0.fromUserId })
             }
         }
-
-        listenerManager.setListener(newListener)
-
-        // Also do an initial fetch to ensure data loads quickly
-        Task {
-            do {
-                print("[InvitationVM] Performing initial fetch for user: \(id)")
-                let freshInvitations = try await invitationService.fetchInvitations(for: id)
-                await MainActor.run {
-                    self.invitations = freshInvitations
-                    self.errorMessage = nil
-                    print("[InvitationVM] Initial fetch loaded \(freshInvitations.count) invitations")
-                    self.isLoading = false
-                }
-            } catch {
-                await MainActor.run {
-                    print("[InvitationVM] Initial fetch error: \(error.localizedDescription)")
-                    self.isLoading = false
-                }
-            }
-        }
+        listenerManager.setListener(listener)
     }
 
     func acceptInvitation(_ invitation: Invitation) async {
@@ -131,13 +88,33 @@ final class InvitationViewModel {
     func refreshInvitations() async {
         guard let userId else { return }
         do {
-            print("[InvitationVM] Manually refreshing invitations")
-            let freshInvitations = try await invitationService.fetchInvitations(for: userId)
-            self.invitations = freshInvitations
-            print("[InvitationVM] Refreshed \(freshInvitations.count) invitations")
+            invitations = try await invitationService.fetchReceivedInvitations(for: userId)
+            errorMessage = nil
+            await cacheUsers(forIds: invitations.map { $0.fromUserId })
         } catch {
-            self.errorMessage = error.localizedDescription
-            print("[InvitationVM] Refresh error: \(error.localizedDescription)")
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    /// View helper: returns the best display string for an invitation's
+    /// sender (or any other user id). Falls back to "Loading…" while the
+    /// profile is being fetched.
+    func displayString(for userId: String) -> String {
+        userCache[userId]?.displayString ?? "Loading…"
+    }
+
+    /// Fetches any `AppUser` profiles not already in the cache and stores
+    /// them. Silent on failure — the UI will keep showing the placeholder.
+    private func cacheUsers(forIds ids: [String]) async {
+        let missing = Array(Set(ids).subtracting(userCache.keys))
+        guard !missing.isEmpty else { return }
+        do {
+            let users = try await userService.fetchUsers(ids: missing)
+            for user in users {
+                userCache[user.id] = user
+            }
+        } catch {
+            // Best-effort enrichment; do not surface to the UI.
         }
     }
 }

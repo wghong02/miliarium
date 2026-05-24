@@ -13,7 +13,6 @@ struct HomeSectionView: View {
     @State private var progressToDelete: String?
     @State private var isDeleting = false
     @State private var currentUserId: String?
-    @State private var currentUserEmail: String?
 
     var body: some View {
         NavigationStack {
@@ -50,13 +49,9 @@ struct HomeSectionView: View {
             }
             .onAppear {
                 currentUserId = authVM.user?.uid
-                currentUserEmail = authVM.user?.email
             }
             .onChange(of: authVM.user?.uid) { _, newValue in
                 currentUserId = newValue
-            }
-            .onChange(of: authVM.user?.email) { _, newValue in
-                currentUserEmail = newValue
             }
             .sheet(isPresented: $showCreateProgress) {
                 CreateProgressSheet { title in
@@ -66,13 +61,11 @@ struct HomeSectionView: View {
             .sheet(isPresented: $showSendInvitation) {
                 if let id = progressStore.selectedProgressId,
                    let item = progressStore.progresses.first(where: { $0.id == id }),
-                   let userId = currentUserId,
-                   let userEmail = currentUserEmail {
+                   let userId = currentUserId {
                     SendInvitationSheet(
                         progressItemId: id,
                         progressItemTitle: item.title,
-                        currentUserId: userId,
-                        currentUserEmail: userEmail
+                        currentUserId: userId
                     )
                 }
             }
@@ -152,7 +145,7 @@ struct HomeSectionView: View {
 
                     Spacer()
 
-                    if item.ownerUserId == currentUserId {
+                    if progressStore.isOwner(of: item.id) {
                         Button(action: { showEditSummary = true }) {
                             Image(systemName: "pencil.circle.fill")
                                 .font(.headline)
@@ -182,9 +175,9 @@ struct HomeSectionView: View {
 
                 UpcomingEventsView(progressItemId: id)
 
-                MilestonesSection(progressItemId: id)
+                CollectionsSection(progressItemId: id)
 
-                if item.ownerUserId == currentUserId {
+                if progressStore.isOwner(of: item.id) {
                     Button {
                         showSendInvitation = true
                     } label: {
@@ -227,7 +220,7 @@ struct HomeSectionView: View {
     private var invitedUsersPanel: some View {
         if let id = progressStore.selectedProgressId,
            let item = progressStore.progresses.first(where: { $0.id == id }),
-           item.ownerUserId == currentUserId {
+           progressStore.isOwner(of: id) {
             InvitedUsersPanelView(progressItemId: id, progressItemTitle: item.title)
         }
     }

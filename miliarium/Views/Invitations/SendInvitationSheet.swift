@@ -8,7 +8,6 @@ struct SendInvitationSheet: View {
     let progressItemId: String
     let progressItemTitle: String
     let currentUserId: String
-    let currentUserEmail: String
 
     @State private var recipientEmail = ""
     @State private var isLoading = false
@@ -76,22 +75,17 @@ struct SendInvitationSheet: View {
 
         Task {
             do {
-                print("Looking up user with email: \(trimmed)")
-                // Look up the recipient user by email
+                // Look up the recipient by email — the only thing we need
+                // from the user collection is their `userId`. Display
+                // strings are resolved live elsewhere.
                 let recipientUserId = try await lookupUserByEmail(trimmed)
-                print("Found recipient user ID: \(recipientUserId)")
 
-                // Send the invitation
-                print("Sending invitation to \(recipientUserId) for progress \(progressItemId)")
                 try await invitationService.sendInvitation(
                     from: currentUserId,
-                    fromEmail: currentUserEmail,
                     to: recipientUserId,
-                    toEmail: trimmed,
                     progressItemId: progressItemId,
                     progressItemTitle: progressItemTitle
                 )
-                print("Invitation sent successfully")
 
                 await MainActor.run {
                     isLoading = false
@@ -105,11 +99,8 @@ struct SendInvitationSheet: View {
                 }
             } catch {
                 let errMsg = error.localizedDescription
-                print("Error sending invitation: \(errMsg)")
-                print("Full error: \(error)")
                 await MainActor.run {
                     isLoading = false
-                    // Provide user-friendly error message
                     if errMsg.contains("already exists") {
                         errorMessage = "You already sent an invitation to this user for this progress."
                     } else {
@@ -139,8 +130,7 @@ struct SendInvitationSheet: View {
     SendInvitationSheet(
         progressItemId: "test123",
         progressItemTitle: "My Progress",
-        currentUserId: "user123",
-        currentUserEmail: "user@example.com"
+        currentUserId: "user123"
     )
     .environment(InvitationViewModel())
 }

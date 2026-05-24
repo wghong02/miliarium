@@ -8,7 +8,10 @@ private enum CreateProgressFailure: Error {
 
 /// Progress data lives in `progressItems/{progressItemId}`.
 /// Per-user membership is tracked in `users/{userId}/progressLinks/{progressItemId}` (document id matches the item id).
-/// Each progress has an associated calendar at `calendars/{calendarId}` with nested events.
+/// Each progress owns two subcollections — `activities/{id}` and `collections/{id}` — that
+/// together implement the unified activities model. (Legacy `calendars/{id}/events` data
+/// from before the migration is still cascade-cleaned by `deleteProgress` but no longer
+/// created or read.)
 @Observable
 @MainActor
 final class ProgressStore {
@@ -16,6 +19,11 @@ final class ProgressStore {
     private(set) var selectedProgressId: String?
     private(set) var errorMessage: String?
     private(set) var isLoading = false
+
+    /// Role per linked progress, sourced directly from the link doc's
+    /// `role` field. Missing entries fall back to inference from the
+    /// progress item's `ownerUserId` (via `role(forProgressId:)`).
+    private(set) var rolesByProgressId: [String: ProgressRole] = [:]
 
     private var listener: ListenerRegistration?
     private var userId: String?
@@ -28,6 +36,7 @@ final class ProgressStore {
         listener = nil
         userId = id
         progresses = []
+        rolesByProgressId = [:]
         selectedProgressId = nil
         pendingSelectProgressId = nil
         errorMessage = nil
@@ -58,10 +67,20 @@ final class ProgressStore {
                 }
                 self.errorMessage = nil
                 let orderedIds = snapshot.documents.map(\.documentID)
+                // Capture roles from the link docs; missing entries fall
+                // back to inference at lookup time.
+                var roles: [String: ProgressRole] = [:]
+                for doc in snapshot.documents {
+                    if let raw = doc.data()["role"] as? String,
+                       let role = ProgressRole(rawValue: raw) {
+                        roles[doc.documentID] = role
+                    }
+                }
                 let items = await self.fetchProgressItems(ids: orderedIds)
                 self.isLoading = false
                 // Server snapshot is source of truth — only update in-memory list after Firestore delivers data.
                 self.progresses = items
+                self.rolesByProgressId = roles
 
                 if let pending = self.pendingSelectProgressId,
                    items.contains(where: { $0.id == pending }) {
@@ -83,6 +102,29 @@ final class ProgressStore {
 
     func selectProgress(id: String?) {
         selectedProgressId = id
+    }
+
+    /// Returns the current user's role on the given progress. Prefers the
+    /// link doc's stored `role` field; if absent (e.g. older link docs that
+    /// predate the field), infers from the progress item's `ownerUserId`.
+    /// Returns `nil` only when neither source has data, which shouldn't
+    /// happen for a progress the user is actually linked to.
+    func role(forProgressId progressId: String) -> ProgressRole? {
+        if let stored = rolesByProgressId[progressId] {
+            return stored
+        }
+        guard let userId,
+              let item = progresses.first(where: { $0.id == progressId }) else {
+            return nil
+        }
+        return item.inferredRole(forUserId: userId)
+    }
+
+    /// Convenience used by views: `true` when the current user owns the
+    /// given progress (or, if role isn't known yet, when ownership is
+    /// inferrable from the loaded progress item).
+    func isOwner(of progressId: String) -> Bool {
+        role(forProgressId: progressId) == .owner
     }
 
     /// Updates the summary of a progress item
@@ -109,7 +151,7 @@ final class ProgressStore {
         }
     }
 
-    /// Creates one progress document + link + calendar. Waits at most **3 seconds**; does not retry.
+    /// Creates one progress document + link + default ActivityCollection. Waits at most **3 seconds**; does not retry.
     @discardableResult
     func createProgress(title: String) async -> Bool {
         let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -119,12 +161,17 @@ final class ProgressStore {
         let progressRef = db.collection("progressItems").document()
         let linkRef = db.collection("users").document(userId).collection("progressLinks").document(progressRef.documentID)
         
-        // Create calendar for this progress (using Calendar model)
-        let calendar = Calendar(progressItemId: progressRef.documentID, createdAt: Date(), updatedAt: Date())
-        let calendarRef = db.collection("calendars").document(calendar.id)
-        
+        // Seed the default ActivityCollection so new activities always have a home.
+        let defaultCollection = ActivityCollection(
+            name: ActivityCollectionService.defaultCollectionName,
+            isDefault: true
+        )
+        let defaultCollectionRef = progressRef
+            .collection("collections")
+            .document(defaultCollection.id)
+
         let batch = db.batch()
-        
+
         // Add progress item
         batch.setData(
             [
@@ -135,27 +182,20 @@ final class ProgressStore {
             ],
             forDocument: progressRef
         )
-        
-        // Add progress link
+
+        // Add progress link (creator owns the progress).
         batch.setData(
             [
                 "userId": userId,
                 "progressItemId": progressRef.documentID,
                 "linkedAt": FieldValue.serverTimestamp(),
+                "role": ProgressRole.owner.rawValue,
             ],
             forDocument: linkRef
         )
-        
-        // Add calendar
-        batch.setData(
-            [
-                "progressItemId": calendar.progressItemId,
-                "ownerUserId": userId,
-                "createdAt": FieldValue.serverTimestamp(),
-                "updatedAt": FieldValue.serverTimestamp(),
-            ],
-            forDocument: calendarRef
-        )
+
+        // Add default ActivityCollection
+        batch.setData(defaultCollection.asFirestoreMap(), forDocument: defaultCollectionRef)
         
         do {
             try await withThrowingTaskGroup(of: Void.self) { group in
@@ -209,6 +249,14 @@ final class ProgressStore {
                 .limit(to: 1)
                 .getDocuments()
 
+            // Fetch activities and collections subcollections for cascade delete.
+            let activitiesSnapshot = try await progressRef
+                .collection("activities")
+                .getDocuments()
+            let collectionsSnapshot = try await progressRef
+                .collection("collections")
+                .getDocuments()
+
             let batch = db.batch()
 
             // First, cascade delete the calendar and all its events
@@ -233,6 +281,14 @@ final class ProgressStore {
             // Delete all invitations related to this progress
             for invitationDoc in invitationsSnapshot.documents {
                 batch.deleteDocument(invitationDoc.reference)
+            }
+
+            // Delete all activities and collections under this progress
+            for activityDoc in activitiesSnapshot.documents {
+                batch.deleteDocument(activityDoc.reference)
+            }
+            for collectionDoc in collectionsSnapshot.documents {
+                batch.deleteDocument(collectionDoc.reference)
             }
 
             // Delete progress and link
