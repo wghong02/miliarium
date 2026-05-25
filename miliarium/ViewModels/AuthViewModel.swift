@@ -1,4 +1,5 @@
 import Foundation
+import OSLog
 import FirebaseAuth
 import Observation
 
@@ -35,37 +36,50 @@ final class AuthViewModel {
                 // Idempotently materialize the matching `users/{uid}` doc
                 // (with the explicit `userId` field that mirrors the doc id).
                 if let user {
+                    AppLogger.auth.debug("authStateChanged: user signed in uid=\(user.uid)")
                     do {
                         try await userService.ensureUserExists(
                             userId: user.uid,
                             email: user.email
                         )
                     } catch {
-                        // Surfaced to the console; don't block sign-in.
-                        print("ensureUserExists failed: \(error.localizedDescription)")
+                        // Surfaced to the log; don't block sign-in.
+                        AppLogger.auth.error("ensureUserExists failed uid=\(user.uid): \(error)")
                     }
+                } else {
+                    AppLogger.auth.debug("authStateChanged: user signed out")
                 }
             }
         }
     }
 
     func signIn(email: String, password: String) async {
+        AppLogger.auth.debug("signIn email=\(email)")
         await perform {
             _ = try await Auth.auth().signIn(withEmail: email, password: password)
+        }
+        if errorMessage == nil {
+            AppLogger.auth.debug("signIn succeeded email=\(email)")
         }
     }
 
     func register(email: String, password: String) async {
+        AppLogger.auth.debug("register email=\(email)")
         await perform {
             _ = try await Auth.auth().createUser(withEmail: email, password: password)
+        }
+        if errorMessage == nil {
+            AppLogger.auth.debug("register succeeded email=\(email)")
         }
     }
 
     func signOut() {
+        AppLogger.auth.debug("signOut")
         errorMessage = nil
         do {
             try Auth.auth().signOut()
         } catch {
+            AppLogger.auth.error("signOut failed: \(error)")
             errorMessage = error.localizedDescription
         }
     }
@@ -77,6 +91,7 @@ final class AuthViewModel {
         do {
             try await work()
         } catch {
+            AppLogger.auth.error("auth operation failed: \(error)")
             errorMessage = error.localizedDescription
         }
     }

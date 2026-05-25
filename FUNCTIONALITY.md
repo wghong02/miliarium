@@ -120,13 +120,15 @@ Test scope tags:
 ### 3.4 Delete progress 🖼
 
 **Behavior**
-- The owner taps "Delete Progress" → confirmation overlay slides up from the bottom.
+- The owner taps "Delete Progress" → a system confirmation dialog (action sheet) appears with the title "Delete Progress?", a message explaining the action is irreversible, a destructive "Delete" button, and a "Cancel" button.
+- While deletion is in flight, the "Delete Progress" button shows a spinner and is disabled.
+- If deletion fails, a "Delete Failed" alert surfaces the error message with an "OK" dismiss button.
 
 **Expectations**
 - The Delete button only appears for the progress owner.
-- The confirmation overlay shows a warning icon, title, and explanatory text.
-- Tapping outside the confirmation overlay dismisses it.
+- Tapping "Cancel" in the confirmation dialog dismisses it without deleting anything.
 - Confirming deletion removes the progress from the picker.
+- A failed deletion surfaces an error alert (not a silent no-op).
 - Collaborators do NOT see the Delete button.
 
 ---

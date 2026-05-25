@@ -1,4 +1,5 @@
 import Foundation
+import OSLog
 import Observation
 import FirebaseFirestore
 
@@ -46,9 +47,11 @@ final class InvitationViewModel {
 
         guard let id else {
             isLoading = false
+            AppLogger.invitationVM.debug("setUserId: cleared (signed out)")
             return
         }
 
+        AppLogger.invitationVM.debug("setUserId userId=\(id)")
         isLoading = true
 
         // Service-owned listener; the initial snapshot Firestore delivers
@@ -67,19 +70,23 @@ final class InvitationViewModel {
     }
 
     func acceptInvitation(_ invitation: Invitation) async {
+        AppLogger.invitationVM.debug("acceptInvitation id=\(invitation.id)")
         do {
             try await invitationService.acceptInvitation(invitation.id)
             errorMessage = nil
         } catch {
+            AppLogger.invitationVM.error("acceptInvitation failed id=\(invitation.id): \(error)")
             errorMessage = error.localizedDescription
         }
     }
 
     func declineInvitation(_ invitation: Invitation) async {
+        AppLogger.invitationVM.debug("declineInvitation id=\(invitation.id)")
         do {
             try await invitationService.declineInvitation(invitation.id)
             errorMessage = nil
         } catch {
+            AppLogger.invitationVM.error("declineInvitation failed id=\(invitation.id): \(error)")
             errorMessage = error.localizedDescription
         }
     }
@@ -87,11 +94,13 @@ final class InvitationViewModel {
     @MainActor
     func refreshInvitations() async {
         guard let userId else { return }
+        AppLogger.invitationVM.debug("refreshInvitations userId=\(userId)")
         do {
             invitations = try await invitationService.fetchReceivedInvitations(for: userId)
             errorMessage = nil
             await cacheUsers(forIds: invitations.map { $0.fromUserId })
         } catch {
+            AppLogger.invitationVM.error("refreshInvitations failed userId=\(userId): \(error)")
             errorMessage = error.localizedDescription
         }
     }
@@ -108,6 +117,7 @@ final class InvitationViewModel {
     private func cacheUsers(forIds ids: [String]) async {
         let missing = Array(Set(ids).subtracting(userCache.keys))
         guard !missing.isEmpty else { return }
+        AppLogger.invitationVM.debug("cacheUsers fetching \(missing.count) uncached profiles")
         do {
             let users = try await userService.fetchUsers(ids: missing)
             for user in users {
@@ -115,6 +125,7 @@ final class InvitationViewModel {
             }
         } catch {
             // Best-effort enrichment; do not surface to the UI.
+            AppLogger.invitationVM.error("cacheUsers failed: \(error)")
         }
     }
 }

@@ -1,4 +1,5 @@
 import Foundation
+import OSLog
 import FirebaseFirestore
 
 /// CRUD + listener service for `ActivityCollection` documents at
@@ -41,35 +42,59 @@ class ActivityCollectionService {
             isDefault: isDefault
         )
 
+        AppLogger.activityCollection.debug("createCollection progressId=\(progressItemId) name=\(name)")
         let ref = collectionsRef(for: progressItemId).document(collection.id)
-        try await ref.setData(collection.asFirestoreMap())
+        do {
+            try await ref.setData(collection.asFirestoreMap())
+            AppLogger.activityCollection.debug("createCollection succeeded id=\(collection.id)")
+        } catch {
+            AppLogger.activityCollection.error("createCollection failed: \(error)")
+            throw error
+        }
         return collection
     }
 
     // MARK: - Read
 
     func fetchCollections(for progressItemId: String) async throws -> [ActivityCollection] {
-        let snapshot = try await collectionsRef(for: progressItemId)
-            .order(by: "createdAt", descending: false)
-            .getDocuments()
-
-        return snapshot.documents.compactMap { ActivityCollection(document: $0) }
+        AppLogger.activityCollection.debug("fetchCollections progressId=\(progressItemId)")
+        do {
+            let snapshot = try await collectionsRef(for: progressItemId)
+                .order(by: "createdAt", descending: false)
+                .getDocuments()
+            return snapshot.documents.compactMap { ActivityCollection(document: $0) }
+        } catch {
+            AppLogger.activityCollection.error("fetchCollections failed progressId=\(progressItemId): \(error)")
+            throw error
+        }
     }
 
     func fetchCollection(id: String, for progressItemId: String) async throws -> ActivityCollection? {
-        let doc = try await collectionsRef(for: progressItemId)
-            .document(id)
-            .getDocument()
-        return ActivityCollection(document: doc)
+        AppLogger.activityCollection.debug("fetchCollection id=\(id) progressId=\(progressItemId)")
+        do {
+            let doc = try await collectionsRef(for: progressItemId)
+                .document(id)
+                .getDocument()
+            return ActivityCollection(document: doc)
+        } catch {
+            AppLogger.activityCollection.error("fetchCollection failed id=\(id): \(error)")
+            throw error
+        }
     }
 
     /// Returns the (first) default collection for a progress, if one exists.
     func fetchDefaultCollection(for progressItemId: String) async throws -> ActivityCollection? {
-        let snapshot = try await collectionsRef(for: progressItemId)
-            .whereField("isDefault", isEqualTo: true)
-            .limit(to: 1)
-            .getDocuments()
-        return snapshot.documents.first.flatMap { ActivityCollection(document: $0) }
+        AppLogger.activityCollection.debug("fetchDefaultCollection progressId=\(progressItemId)")
+        do {
+            let snapshot = try await collectionsRef(for: progressItemId)
+                .whereField("isDefault", isEqualTo: true)
+                .limit(to: 1)
+                .getDocuments()
+            return snapshot.documents.first.flatMap { ActivityCollection(document: $0) }
+        } catch {
+            AppLogger.activityCollection.error("fetchDefaultCollection failed progressId=\(progressItemId): \(error)")
+            throw error
+        }
     }
 
     // MARK: - Update
@@ -88,8 +113,15 @@ class ActivityCollectionService {
         if let notes { updated.notes = notes }
         if let isFavorite { updated.isFavorite = isFavorite }
 
+        AppLogger.activityCollection.debug("updateCollection id=\(collection.id) progressId=\(progressItemId)")
         let ref = collectionsRef(for: progressItemId).document(collection.id)
-        try await ref.setData(updated.asFirestoreMap())
+        do {
+            try await ref.setData(updated.asFirestoreMap())
+            AppLogger.activityCollection.debug("updateCollection succeeded id=\(collection.id)")
+        } catch {
+            AppLogger.activityCollection.error("updateCollection failed id=\(collection.id): \(error)")
+            throw error
+        }
     }
 
     /// Recomputes `stats` from the activities currently referenced by
@@ -100,20 +132,27 @@ class ActivityCollectionService {
         for collection: ActivityCollection,
         progressItemId: String
     ) async throws -> ActivityCollection {
-        let snapshot = try await activitiesRef(for: progressItemId).getDocuments()
-        let allActivities = snapshot.documents.compactMap { Activity(document: $0) }
+        AppLogger.activityCollection.debug("refreshStats collectionId=\(collection.id) progressId=\(progressItemId)")
+        do {
+            let snapshot = try await activitiesRef(for: progressItemId).getDocuments()
+            let allActivities = snapshot.documents.compactMap { Activity(document: $0) }
 
-        let memberIds = Set(collection.activityIds)
-        let members = allActivities.filter { memberIds.contains($0.id) }
+            let memberIds = Set(collection.activityIds)
+            let members = allActivities.filter { memberIds.contains($0.id) }
 
-        var updated = collection
-        updated.stats = ActivityCollection.computeStats(from: members)
-        updated.statsUpdatedAt = Date()
-        updated.updatedAt = Date()
+            var updated = collection
+            updated.stats = ActivityCollection.computeStats(from: members)
+            updated.statsUpdatedAt = Date()
+            updated.updatedAt = Date()
 
-        let ref = collectionsRef(for: progressItemId).document(collection.id)
-        try await ref.setData(updated.asFirestoreMap())
-        return updated
+            let ref = collectionsRef(for: progressItemId).document(collection.id)
+            try await ref.setData(updated.asFirestoreMap())
+            AppLogger.activityCollection.debug("refreshStats succeeded collectionId=\(collection.id) memberCount=\(members.count)")
+            return updated
+        } catch {
+            AppLogger.activityCollection.error("refreshStats failed collectionId=\(collection.id): \(error)")
+            throw error
+        }
     }
 
     // MARK: - Delete
@@ -126,9 +165,11 @@ class ActivityCollectionService {
         progressItemId: String
     ) async throws {
         if collection.isDefault {
+            AppLogger.activityCollection.error("deleteCollection rejected: cannot delete default collection id=\(collection.id)")
             throw ActivityCollectionError.cannotDeleteDefault
         }
 
+        AppLogger.activityCollection.debug("deleteCollection id=\(collection.id) progressId=\(progressItemId) memberCount=\(collection.activityIds.count)")
         let batch = db.batch()
         let now = Timestamp(date: Date())
 
@@ -147,7 +188,13 @@ class ActivityCollectionService {
         let collectionRef = collectionsRef(for: progressItemId).document(collection.id)
         batch.deleteDocument(collectionRef)
 
-        try await Self.commitBatch(batch)
+        do {
+            try await Self.commitBatch(batch)
+            AppLogger.activityCollection.debug("deleteCollection succeeded id=\(collection.id)")
+        } catch {
+            AppLogger.activityCollection.error("deleteCollection failed id=\(collection.id): \(error)")
+            throw error
+        }
     }
 
     // MARK: - Listener
@@ -159,16 +206,18 @@ class ActivityCollectionService {
         let query = collectionsRef(for: progressItemId)
             .order(by: "createdAt", descending: false)
 
+        AppLogger.activityCollection.debug("setCollectionsListener progressId=\(progressItemId)")
         return query.addSnapshotListener { snapshot, error in
             if let error {
-                print("[ActivityCollectionService] Listener error: \(error.localizedDescription)")
+                AppLogger.activityCollection.error("collectionsListener error progressId=\(progressItemId): \(error)")
                 return
             }
             guard let snapshot else {
-                print("[ActivityCollectionService] Snapshot is nil")
+                AppLogger.activityCollection.error("collectionsListener received nil snapshot progressId=\(progressItemId)")
                 return
             }
             let collections = snapshot.documents.compactMap { ActivityCollection(document: $0) }
+            AppLogger.activityCollection.debug("collectionsListener update progressId=\(progressItemId) count=\(collections.count)")
             onChange(collections)
         }
     }
