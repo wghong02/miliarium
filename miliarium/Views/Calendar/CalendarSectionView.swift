@@ -73,21 +73,12 @@ struct CalendarSectionView: View {
             }
         } label: {
             HStack(spacing: 4) {
-                Text(filterTitle)
-                    .lineLimit(1)
+                Image(systemName: "line.3.horizontal.decrease.circle")
                 Image(systemName: "chevron.down")
                     .font(.caption.weight(.semibold))
             }
         }
         .accessibilityLabel("Filter by collection")
-    }
-
-    private var filterTitle: String {
-        if let id = selectedCollectionId,
-           let collection = collections.first(where: { $0.id == id }) {
-            return collection.name
-        }
-        return "All collections"
     }
 
     // MARK: - Collections listener

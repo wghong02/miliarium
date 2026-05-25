@@ -1,4 +1,5 @@
 import Foundation
+import OSLog
 import FirebaseFirestore
 
 /// CRUD + listener service for `Activity` documents at
@@ -52,6 +53,7 @@ class ActivityService {
             collectionIds: collectionIds
         )
 
+        AppLogger.activity.debug("createActivity progressId=\(progressItemId) title=\(title) collections=\(collectionIds)")
         let activityRef = activitiesRef(for: progressItemId).document(activity.id)
 
         let batch = db.batch()
@@ -68,43 +70,70 @@ class ActivityService {
             )
         }
 
-        try await Self.commitBatch(batch)
+        do {
+            try await Self.commitBatch(batch)
+            AppLogger.activity.debug("createActivity succeeded id=\(activity.id)")
+        } catch {
+            AppLogger.activity.error("createActivity failed progressId=\(progressItemId): \(error)")
+            throw error
+        }
         return activity
     }
 
     // MARK: - Read
 
     func fetchActivities(for progressItemId: String) async throws -> [Activity] {
-        let snapshot = try await activitiesRef(for: progressItemId)
-            .order(by: "createdAt", descending: true)
-            .getDocuments()
-
-        return snapshot.documents.compactMap { Activity(document: $0) }
+        AppLogger.activity.debug("fetchActivities progressId=\(progressItemId)")
+        do {
+            let snapshot = try await activitiesRef(for: progressItemId)
+                .order(by: "createdAt", descending: true)
+                .getDocuments()
+            return snapshot.documents.compactMap { Activity(document: $0) }
+        } catch {
+            AppLogger.activity.error("fetchActivities failed progressId=\(progressItemId): \(error)")
+            throw error
+        }
     }
 
     func fetchActivity(id: String, for progressItemId: String) async throws -> Activity? {
-        let doc = try await activitiesRef(for: progressItemId)
-            .document(id)
-            .getDocument()
-
-        return Activity(document: doc)
+        AppLogger.activity.debug("fetchActivity id=\(id) progressId=\(progressItemId)")
+        do {
+            let doc = try await activitiesRef(for: progressItemId)
+                .document(id)
+                .getDocument()
+            return Activity(document: doc)
+        } catch {
+            AppLogger.activity.error("fetchActivity failed id=\(id): \(error)")
+            throw error
+        }
     }
 
     /// Activities with a non-nil `timestamp` — for the Calendar view.
     func fetchActivitiesWithTime(for progressItemId: String) async throws -> [Activity] {
-        let snapshot = try await activitiesRef(for: progressItemId)
-            .whereField("timestamp", isGreaterThan: Timestamp(date: .distantPast))
-            .order(by: "timestamp", descending: false)
-            .getDocuments()
-
-        return snapshot.documents.compactMap { Activity(document: $0) }
+        AppLogger.activity.debug("fetchActivitiesWithTime progressId=\(progressItemId)")
+        do {
+            let snapshot = try await activitiesRef(for: progressItemId)
+                .whereField("timestamp", isGreaterThan: Timestamp(date: .distantPast))
+                .order(by: "timestamp", descending: false)
+                .getDocuments()
+            return snapshot.documents.compactMap { Activity(document: $0) }
+        } catch {
+            AppLogger.activity.error("fetchActivitiesWithTime failed progressId=\(progressItemId): \(error)")
+            throw error
+        }
     }
 
     /// Activities with a location — for the Map view. Firestore can't filter
     /// on `GeoPoint` presence directly, so we fetch all and filter in memory.
     func fetchActivitiesWithLocation(for progressItemId: String) async throws -> [Activity] {
-        let all = try await fetchActivities(for: progressItemId)
-        return all.filter { $0.hasLocation }
+        AppLogger.activity.debug("fetchActivitiesWithLocation progressId=\(progressItemId)")
+        do {
+            let all = try await fetchActivities(for: progressItemId)
+            return all.filter { $0.hasLocation }
+        } catch {
+            AppLogger.activity.error("fetchActivitiesWithLocation failed progressId=\(progressItemId): \(error)")
+            throw error
+        }
     }
 
     // MARK: - Update
@@ -141,6 +170,7 @@ class ActivityService {
             updated.collectionIds = Array(newCollectionIds)
         }
 
+        AppLogger.activity.debug("updateActivity id=\(activity.id) progressId=\(progressItemId)")
         let activityRef = activitiesRef(for: progressItemId).document(activity.id)
         let batch = db.batch()
         batch.setData(updated.asFirestoreMap(), forDocument: activityRef)
@@ -172,7 +202,13 @@ class ActivityService {
             }
         }
 
-        try await Self.commitBatch(batch)
+        do {
+            try await Self.commitBatch(batch)
+            AppLogger.activity.debug("updateActivity succeeded id=\(activity.id)")
+        } catch {
+            AppLogger.activity.error("updateActivity failed id=\(activity.id): \(error)")
+            throw error
+        }
     }
 
     // MARK: - Delete
@@ -180,6 +216,7 @@ class ActivityService {
     /// Deletes an activity and removes its ID from every collection it
     /// belonged to.
     func deleteActivity(_ activity: Activity, progressItemId: String) async throws {
+        AppLogger.activity.debug("deleteActivity id=\(activity.id) progressId=\(progressItemId) collections=\(activity.collectionIds)")
         let activityRef = activitiesRef(for: progressItemId).document(activity.id)
 
         let batch = db.batch()
@@ -197,7 +234,13 @@ class ActivityService {
             )
         }
 
-        try await Self.commitBatch(batch)
+        do {
+            try await Self.commitBatch(batch)
+            AppLogger.activity.debug("deleteActivity succeeded id=\(activity.id)")
+        } catch {
+            AppLogger.activity.error("deleteActivity failed id=\(activity.id): \(error)")
+            throw error
+        }
     }
 
     // MARK: - Membership convenience
@@ -207,6 +250,7 @@ class ActivityService {
         toCollection collectionId: String,
         progressItemId: String
     ) async throws {
+        AppLogger.activity.debug("addActivity activityId=\(activityId) toCollection=\(collectionId) progressId=\(progressItemId)")
         let now = Timestamp(date: Date())
         let batch = db.batch()
         batch.updateData(
@@ -223,7 +267,13 @@ class ActivityService {
             ],
             forDocument: collectionsRef(for: progressItemId).document(collectionId)
         )
-        try await Self.commitBatch(batch)
+        do {
+            try await Self.commitBatch(batch)
+            AppLogger.activity.debug("addActivity succeeded activityId=\(activityId) collectionId=\(collectionId)")
+        } catch {
+            AppLogger.activity.error("addActivity failed activityId=\(activityId) collectionId=\(collectionId): \(error)")
+            throw error
+        }
     }
 
     func removeActivity(
@@ -231,6 +281,7 @@ class ActivityService {
         fromCollection collectionId: String,
         progressItemId: String
     ) async throws {
+        AppLogger.activity.debug("removeActivity activityId=\(activityId) fromCollection=\(collectionId) progressId=\(progressItemId)")
         let now = Timestamp(date: Date())
         let batch = db.batch()
         batch.updateData(
@@ -247,7 +298,13 @@ class ActivityService {
             ],
             forDocument: collectionsRef(for: progressItemId).document(collectionId)
         )
-        try await Self.commitBatch(batch)
+        do {
+            try await Self.commitBatch(batch)
+            AppLogger.activity.debug("removeActivity succeeded activityId=\(activityId) collectionId=\(collectionId)")
+        } catch {
+            AppLogger.activity.error("removeActivity failed activityId=\(activityId) collectionId=\(collectionId): \(error)")
+            throw error
+        }
     }
 
     // MARK: - Listener
@@ -259,16 +316,18 @@ class ActivityService {
         let query = activitiesRef(for: progressItemId)
             .order(by: "createdAt", descending: true)
 
+        AppLogger.activity.debug("setActivitiesListener progressId=\(progressItemId)")
         return query.addSnapshotListener { snapshot, error in
             if let error {
-                print("[ActivityService] Listener error: \(error.localizedDescription)")
+                AppLogger.activity.error("activitiesListener error progressId=\(progressItemId): \(error)")
                 return
             }
             guard let snapshot else {
-                print("[ActivityService] Snapshot is nil")
+                AppLogger.activity.error("activitiesListener received nil snapshot progressId=\(progressItemId)")
                 return
             }
             let activities = snapshot.documents.compactMap { Activity(document: $0) }
+            AppLogger.activity.debug("activitiesListener update progressId=\(progressItemId) count=\(activities.count)")
             onChange(activities)
         }
     }

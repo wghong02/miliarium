@@ -1,4 +1,5 @@
 import Foundation
+import OSLog
 import Observation
 import FirebaseFirestore
 
@@ -41,9 +42,11 @@ final class ProgressStore {
 
         guard let id else {
             isLoading = false
+            AppLogger.progressStore.debug("updateUserId: cleared (signed out)")
             return
         }
 
+        AppLogger.progressStore.debug("updateUserId userId=\(id)")
         isLoading = true
         let query = Firestore.firestore()
             .collection("users")
@@ -55,11 +58,13 @@ final class ProgressStore {
             Task { @MainActor in
                 guard let self else { return }
                 if let error {
+                    AppLogger.progressStore.error("progressLinksListener error userId=\(id): \(error)")
                     self.isLoading = false
                     self.errorMessage = error.localizedDescription
                     return
                 }
                 guard let snapshot else {
+                    AppLogger.progressStore.error("progressLinksListener nil snapshot userId=\(id)")
                     self.isLoading = false
                     return
                 }
@@ -76,6 +81,7 @@ final class ProgressStore {
                 }
                 let items = await self.fetchProgressItems(ids: orderedIds)
                 self.isLoading = false
+                AppLogger.progressStore.debug("progressLinksListener update userId=\(id) count=\(items.count)")
                 // Server snapshot is source of truth — only update in-memory list after Firestore delivers data.
                 self.progresses = items
                 self.rolesByProgressId = roles
@@ -127,6 +133,7 @@ final class ProgressStore {
 
     /// Updates the summary of a progress item
     func updateProgressSummary(progressId: String, summary: String) async -> Bool {
+        AppLogger.progressStore.debug("updateProgressSummary progressId=\(progressId)")
         errorMessage = nil
         let db = Firestore.firestore()
 
@@ -142,8 +149,10 @@ final class ProgressStore {
                 progresses[index].content.summary = summary
             }
 
+            AppLogger.progressStore.debug("updateProgressSummary succeeded progressId=\(progressId)")
             return true
         } catch {
+            AppLogger.progressStore.error("updateProgressSummary failed progressId=\(progressId): \(error)")
             errorMessage = error.localizedDescription
             return false
         }
@@ -154,6 +163,7 @@ final class ProgressStore {
     func createProgress(title: String) async -> Bool {
         let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty, let userId else { return false }
+        AppLogger.progressStore.debug("createProgress title=\(trimmed)")
         errorMessage = nil
         let db = Firestore.firestore()
         let progressRef = db.collection("progressItems").document()
@@ -209,11 +219,14 @@ final class ProgressStore {
             }
             // Do not update selection until the listener receives this document from Firestore (server-first).
             pendingSelectProgressId = progressRef.documentID
+            AppLogger.progressStore.debug("createProgress succeeded id=\(progressRef.documentID) title=\(trimmed)")
             return true
         } catch CreateProgressFailure.timedOut {
+            AppLogger.progressStore.error("createProgress timed out title=\(trimmed)")
             errorMessage = "Couldn't create progress in time. Check your connection and try again."
             return false
         } catch {
+            AppLogger.progressStore.error("createProgress failed title=\(trimmed): \(error)")
             errorMessage = error.localizedDescription
             return false
         }
@@ -243,6 +256,7 @@ final class ProgressStore {
             return false
         }
 
+        AppLogger.progressStore.debug("deleteProgress progressId=\(progressId)")
         errorMessage = nil
         let db = Firestore.firestore()
         let progressRef = db.collection("progressItems").document(progressId)
@@ -264,40 +278,32 @@ final class ProgressStore {
                 .whereField("progressItemId", isEqualTo: progressId)
                 .getDocuments()
 
-            let batch = db.batch()
+            // Firestore batches are capped at 500 operations.
+            // Split into chunks of 499 (leave one slot for the progress doc itself in the last chunk).
+            var allDocs: [DocumentReference] =
+                invitationsSnapshot.documents.map(\.reference) +
+                activitiesSnapshot.documents.map(\.reference) +
+                collectionsSnapshot.documents.map(\.reference) +
+                linksSnapshot.documents.map(\.reference)
+            allDocs.append(progressRef)
 
-            for invitationDoc in invitationsSnapshot.documents {
-                batch.deleteDocument(invitationDoc.reference)
+            let chunkSize = 500
+            let chunks = stride(from: 0, to: allDocs.count, by: chunkSize).map {
+                Array(allDocs[$0 ..< min($0 + chunkSize, allDocs.count)])
             }
-            for activityDoc in activitiesSnapshot.documents {
-                batch.deleteDocument(activityDoc.reference)
-            }
-            for collectionDoc in collectionsSnapshot.documents {
-                batch.deleteDocument(collectionDoc.reference)
-            }
-            for linkDoc in linksSnapshot.documents {
-                batch.deleteDocument(linkDoc.reference)
-            }
-            batch.deleteDocument(progressRef)
 
-            // Commit batch (all deletions atomic)
-            try await withThrowingTaskGroup(of: Void.self) { group in
-                group.addTask {
-                    try await Self.commitBatch(batch)
+            for chunk in chunks {
+                let batch = db.batch()
+                for ref in chunk {
+                    batch.deleteDocument(ref)
                 }
-                group.addTask {
-                    try await Task.sleep(for: .seconds(3))
-                    throw CreateProgressFailure.timedOut
-                }
-                try await group.next()
-                group.cancelAll()
+                try await Self.commitBatch(batch)
             }
 
+            AppLogger.progressStore.debug("deleteProgress succeeded progressId=\(progressId) totalDocs=\(allDocs.count)")
             return true
-        } catch CreateProgressFailure.timedOut {
-            errorMessage = "Couldn't delete progress in time. Check your connection and try again."
-            return false
         } catch {
+            AppLogger.progressStore.error("deleteProgress failed progressId=\(progressId): \(error)")
             errorMessage = error.localizedDescription
             return false
         }
@@ -317,22 +323,25 @@ final class ProgressStore {
 
     private func fetchProgressItems(ids: [String]) async -> [ProgressItem] {
         guard !ids.isEmpty else { return [] }
+        AppLogger.progressStore.debug("fetchProgressItems count=\(ids.count)")
         let db = Firestore.firestore()
-        return await withTaskGroup(of: (Int, ProgressItem?).self) { group in
+        return await withTaskGroup(of: (Int, ProgressItem?, String?).self) { group in
             for (index, id) in ids.enumerated() {
                 group.addTask {
                     do {
                         let doc = try await db.collection("progressItems").document(id).getDocument()
-                        return (index, ProgressItem(document: doc))
+                        return (index, ProgressItem(document: doc), nil)
                     } catch {
-                        return (index, nil)
+                        return (index, nil, "\(error)")
                     }
                 }
             }
             var pairs: [(Int, ProgressItem)] = []
-            for await (index, item) in group {
+            for await (index, item, errorDescription) in group {
                 if let item {
                     pairs.append((index, item))
+                } else if let errorDescription {
+                    AppLogger.progressStore.error("fetchProgressItems failed for id=\(ids[index]): \(errorDescription)")
                 }
             }
             return pairs.sorted { $0.0 < $1.0 }.map(\.1)

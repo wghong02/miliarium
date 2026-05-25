@@ -94,10 +94,12 @@ Test scope tags:
 
 **Behavior**
 - The user picks a progress from the top-left menu on the Home tab. (On Calendar and Map, the top-left is the collection filter — progress selection only happens on Home and is shared across all tabs.)
+- The Home top-left menu label is a constant icon (`square.stack.fill` + a small chevron). It does NOT change to reflect the selected progress's title — selection is shown inside the menu via the SwiftUI `Picker` checkmark.
 
 **Expectations**
 - Selecting a different progress updates the displayed title, summary, collections, calendar contents, and map pins.
 - The selection persists across tabs (Calendar and Map show the same progress as Home).
+- The Home top-left label width is fixed regardless of progress name length.
 
 ### 3.3 Edit summary 🖼 🧩
 
@@ -118,13 +120,15 @@ Test scope tags:
 ### 3.4 Delete progress 🖼
 
 **Behavior**
-- The owner taps "Delete Progress" → confirmation overlay slides up from the bottom.
+- The owner taps "Delete Progress" → a system confirmation dialog (action sheet) appears with the title "Delete Progress?", a message explaining the action is irreversible, a destructive "Delete" button, and a "Cancel" button.
+- While deletion is in flight, the "Delete Progress" button shows a spinner and is disabled.
+- If deletion fails, a "Delete Failed" alert surfaces the error message with an "OK" dismiss button.
 
 **Expectations**
 - The Delete button only appears for the progress owner.
-- The confirmation overlay shows a warning icon, title, and explanatory text.
-- Tapping outside the confirmation overlay dismisses it.
+- Tapping "Cancel" in the confirmation dialog dismisses it without deleting anything.
 - Confirming deletion removes the progress from the picker.
+- A failed deletion surfaces an error alert (not a silent no-op).
 - Collaborators do NOT see the Delete button.
 
 ---
@@ -136,9 +140,13 @@ Test scope tags:
 **Behavior**
 - The Home tab shows a "Collections" section with a list of collections for the active progress.
 - A filter row offers "All" vs "Favourites".
+- Each row has a star icon on the left: filled yellow star for favourites, unfilled star for non-favourites.
+- Tapping the star icon toggles the collection's favourite status directly from the list (no need to open the edit sheet).
 
 **Expectations**
-- Each row shows: leading icon (star if favourite, folder otherwise), collection name, optional "default" badge, and a stats line.
+- Each row shows: star icon (filled if favourite, unfilled otherwise), collection name, optional "default" badge, and a stats line.
+- Tapping the star immediately persists the change; the icon updates when the listener reflects the write.
+- The star is disabled while a toggle is in flight to prevent double-taps.
 - Favourite collections sort first; the default collection sorts next; others by creation order.
 - Selecting "Favourites" hides non-favourite collections.
 - Empty state: "No collections yet · Tap + to create one".
@@ -151,16 +159,16 @@ Test scope tags:
 
 **Expectations**
 - The Create button is disabled when the name is empty or whitespace-only.
-- After save, the new collection appears in the list, with the favourite icon if selected.
+- After save, the new collection appears in the list, with a filled star if marked as favourite.
 
 ### 4.3 Edit a collection 🖼
 
 **Behavior**
-- Tapping a collection row opens an edit sheet with name, notes, favourite, stats, and (optional) Delete.
+- Tapping a collection row (anywhere except the star) opens an edit sheet with name, notes, favourite, stats, and (optional) Delete.
 
 **Expectations**
 - The Update button is disabled when the name is empty.
-- Toggling favourite re-sorts the home list (favourites move to the top).
+- Toggling favourite in the edit sheet re-sorts the home list (favourites move to the top).
 
 ### 4.4 Refresh stats 🖼
 
@@ -315,12 +323,14 @@ Test scope tags:
 **Behavior**
 - The top-left toolbar shows a "collection filter" menu. Default selection is **"All collections"** (no filter).
 - The menu lists every collection for the active progress, with "All collections" pinned at the top.
+- The menu's label is a constant icon (`line.3.horizontal.decrease.circle` + a small chevron). It does NOT change to reflect the selected collection — the current selection is shown inside the menu.
 
 **Expectations**
 - When set to "All collections", both the month-grid dot indicators and the daily activities list include every timed activity for the active progress.
 - Selecting a specific collection hides dots and rows for activities not in that collection.
 - Switching to a different progress on the Home tab resets this filter to "All collections".
 - Deleting the currently-selected collection elsewhere resets this filter to "All collections" automatically (no stale selection).
+- The top-left label width is fixed regardless of collection name length.
 
 ---
 
@@ -398,6 +408,7 @@ Test scope tags:
 **Behavior**
 - The top-left toolbar shows a "collection filter" menu. Default selection is **"All collections"** (no filter).
 - The menu lists every collection for the active progress, with "All collections" pinned at the top.
+- The menu's label is a constant icon (`line.3.horizontal.decrease.circle` + a small chevron) — same symbol as the Calendar tab's filter for consistency. It does NOT change to reflect the selected collection.
 
 **Expectations**
 - When set to "All collections", every activity with a location is plotted.
@@ -405,6 +416,7 @@ Test scope tags:
 - The camera re-fits to the visible pins whenever the filter changes (so a small filtered set fills the screen).
 - Switching to a different progress on the Home tab resets this filter to "All collections".
 - Deleting the currently-selected collection elsewhere resets this filter to "All collections" automatically.
+- The top-left label width is fixed regardless of collection name length.
 
 ---
 

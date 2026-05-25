@@ -159,7 +159,6 @@ struct CollectionsSection: View {
 
     private func setUpListener() {
         isLoading = true
-        print("[CollectionsSection] Setting up listener for progress: \(progressItemId)")
         listener = activityCollectionService.setCollectionsListener(for: progressItemId) { fetched in
             self.collections = fetched
             self.isLoading = false
@@ -203,14 +202,20 @@ struct CollectionRowView: View {
     var onDelete: () -> Void = {}
 
     @State private var isEditing = false
+    @State private var isTogglingFavorite = false
 
     var body: some View {
         HStack(spacing: 10) {
-            // Favorite / default indicator
-            Image(systemName: leadingIcon)
-                .font(.subheadline.weight(.semibold))
-                .foregroundStyle(leadingColor)
-                .frame(width: 20)
+            Button {
+                Task { await toggleFavorite() }
+            } label: {
+                Image(systemName: collection.isFavorite ? "star.fill" : "star")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(collection.isFavorite ? Color.yellow : Color.secondary)
+                    .frame(width: 20)
+            }
+            .buttonStyle(.plain)
+            .disabled(isTogglingFavorite)
 
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 6) {
@@ -264,14 +269,14 @@ struct CollectionRowView: View {
         }
     }
 
-    private var leadingIcon: String {
-        if collection.isFavorite { return "star.fill" }
-        return "folder.fill"
-    }
-
-    private var leadingColor: Color {
-        if collection.isFavorite { return .yellow }
-        return .blue
+    private func toggleFavorite() async {
+        isTogglingFavorite = true
+        defer { isTogglingFavorite = false }
+        try? await activityCollectionService.updateCollection(
+            collection,
+            progressItemId: progressItemId,
+            isFavorite: !collection.isFavorite
+        )
     }
 
     private var statsLine: String {

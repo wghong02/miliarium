@@ -12,6 +12,7 @@ struct HomeSectionView: View {
     @State private var showEditSummary = false
     @State private var progressToDelete: String?
     @State private var isDeleting = false
+    @State private var deleteErrorMessage: String?
     @State private var currentUserId: String?
 
     var body: some View {
@@ -80,11 +81,27 @@ struct HomeSectionView: View {
                     }
                 }
             }
-            .overlay(alignment: .bottom) {
-                if showDeleteConfirmation {
-                    deleteConfirmationOverlay
-                        .transition(.move(edge: .bottom).combined(with: .opacity))
+            .confirmationDialog(
+                "Delete Progress?",
+                isPresented: $showDeleteConfirmation,
+                titleVisibility: .visible
+            ) {
+                Button("Delete", role: .destructive) {
+                    deleteSelectedProgress()
                 }
+                Button("Cancel", role: .cancel) {
+                    progressToDelete = nil
+                }
+            } message: {
+                Text("This action cannot be undone. The progress item and all associated data will be permanently deleted.")
+            }
+            .alert("Delete Failed", isPresented: Binding(
+                get: { deleteErrorMessage != nil },
+                set: { if !$0 { deleteErrorMessage = nil } }
+            )) {
+                Button("OK", role: .cancel) { deleteErrorMessage = nil }
+            } message: {
+                Text(deleteErrorMessage ?? "")
             }
         }
     }
@@ -114,24 +131,12 @@ struct HomeSectionView: View {
             }
         } label: {
             HStack(spacing: 4) {
-                Text(menuTitle)
-                    .lineLimit(1)
+                Image(systemName: "square.stack.fill")
                 Image(systemName: "chevron.down")
                     .font(.caption.weight(.semibold))
             }
         }
         .accessibilityLabel("Choose progress")
-    }
-
-    private var menuTitle: String {
-        if progressStore.progresses.isEmpty {
-            return "Progress"
-        }
-        if let id = progressStore.selectedProgressId,
-           let item = progressStore.progresses.first(where: { $0.id == id }) {
-            return item.title
-        }
-        return "Progress"
     }
 
     @ViewBuilder
@@ -197,7 +202,12 @@ struct HomeSectionView: View {
                         showDeleteConfirmation = true
                     } label: {
                         HStack {
-                            Image(systemName: "trash.fill")
+                            if isDeleting {
+                                ProgressView()
+                                    .tint(.red)
+                            } else {
+                                Image(systemName: "trash.fill")
+                            }
                             Text("Delete Progress")
                         }
                         .frame(maxWidth: .infinity)
@@ -225,88 +235,21 @@ struct HomeSectionView: View {
         }
     }
 
-    private var deleteConfirmationOverlay: some View {
-        ZStack(alignment: .bottom) {
-            Color.black.opacity(0.3)
-                .ignoresSafeArea()
-                .onTapGesture {
-                    withAnimation {
-                        showDeleteConfirmation = false
-                    }
-                }
-
-            VStack(spacing: 16) {
-                VStack(spacing: 12) {
-                    Image(systemName: "exclamationmark.triangle.fill")
-                        .font(.system(size: 40))
-                        .foregroundStyle(.red)
-
-                    Text("Delete Progress?")
-                        .font(.title3.weight(.semibold))
-
-                    Text("This action cannot be undone. The progress item and all associated data will be permanently deleted.")
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                        .multilineTextAlignment(.center)
-                }
-                .padding(.vertical, 20)
-
-                Divider()
-
-                VStack(spacing: 0) {
-                    Button(role: .destructive) {
-                        deleteSelectedProgress()
-                    } label: {
-                        HStack {
-                            if isDeleting {
-                                ProgressView()
-                                    .tint(.red)
-                            } else {
-                                Image(systemName: "trash.fill")
-                            }
-                            Text("Delete")
-                        }
-                        .frame(maxWidth: .infinity)
-                        .padding(12)
-                        .foregroundStyle(.red)
-                    }
-                    .disabled(isDeleting)
-
-                    Divider()
-
-                    Button("Cancel") {
-                        withAnimation {
-                            showDeleteConfirmation = false
-                        }
-                    }
-                    .frame(maxWidth: .infinity)
-                    .padding(12)
-                    .foregroundStyle(.blue)
-                }
-            }
-            .background(Color(.systemBackground))
-            .cornerRadius(12, corners: [.topLeft, .topRight])
-            .padding(.horizontal, 16)
-            .padding(.bottom, 16)
-        }
-    }
-
     private func deleteSelectedProgress() {
         guard let progressId = progressToDelete else { return }
 
         isDeleting = true
+        deleteErrorMessage = nil
 
         Task {
             let success = await progressStore.deleteProgress(progressId: progressId)
 
             await MainActor.run {
                 isDeleting = false
-
                 if success {
-                    withAnimation {
-                        showDeleteConfirmation = false
-                    }
                     progressToDelete = nil
+                } else {
+                    deleteErrorMessage = progressStore.errorMessage ?? "Couldn't delete progress. Please try again."
                 }
             }
         }
