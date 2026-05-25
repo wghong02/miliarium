@@ -140,9 +140,13 @@ Test scope tags:
 **Behavior**
 - The Home tab shows a "Collections" section with a list of collections for the active progress.
 - A filter row offers "All" vs "Favourites".
+- Each row has a star icon on the left: filled yellow star for favourites, unfilled star for non-favourites.
+- Tapping the star icon toggles the collection's favourite status directly from the list (no need to open the edit sheet).
 
 **Expectations**
-- Each row shows: leading icon (star if favourite, folder otherwise), collection name, optional "default" badge, and a stats line.
+- Each row shows: star icon (filled if favourite, unfilled otherwise), collection name, optional "default" badge, and a stats line.
+- Tapping the star immediately persists the change; the icon updates when the listener reflects the write.
+- The star is disabled while a toggle is in flight to prevent double-taps.
 - Favourite collections sort first; the default collection sorts next; others by creation order.
 - Selecting "Favourites" hides non-favourite collections.
 - Empty state: "No collections yet · Tap + to create one".
@@ -155,16 +159,16 @@ Test scope tags:
 
 **Expectations**
 - The Create button is disabled when the name is empty or whitespace-only.
-- After save, the new collection appears in the list, with the favourite icon if selected.
+- After save, the new collection appears in the list, with a filled star if marked as favourite.
 
 ### 4.3 Edit a collection 🖼
 
 **Behavior**
-- Tapping a collection row opens an edit sheet with name, notes, favourite, stats, and (optional) Delete.
+- Tapping a collection row (anywhere except the star) opens an edit sheet with name, notes, favourite, stats, and (optional) Delete.
 
 **Expectations**
 - The Update button is disabled when the name is empty.
-- Toggling favourite re-sorts the home list (favourites move to the top).
+- Toggling favourite in the edit sheet re-sorts the home list (favourites move to the top).
 
 ### 4.4 Refresh stats 🖼
 
