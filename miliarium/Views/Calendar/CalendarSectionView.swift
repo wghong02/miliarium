@@ -1,7 +1,15 @@
 import SwiftUI
+import FirebaseFirestore
 
+/// Outer wrapper for the Calendar tab. Owns the **collection filter** in
+/// the top-left toolbar; defers progress switching to the Home tab (the
+/// selected progress is shared app-wide via `ProgressStore`).
 struct CalendarSectionView: View {
     @Environment(ProgressStore.self) private var progressStore
+
+    @State private var collections: [ActivityCollection] = []
+    @State private var collectionsListener: ListenerRegistration?
+    @State private var selectedCollectionId: String?
 
     var body: some View {
         NavigationStack {
@@ -14,51 +22,92 @@ struct CalendarSectionView: View {
                     }
                 } else if let selectedId = progressStore.selectedProgressId,
                           let selectedItem = progressStore.progresses.first(where: { $0.id == selectedId }) {
-                    CalendarView(progressItemId: selectedId, progressTitle: selectedItem.title)
+                    CalendarView(
+                        progressItemId: selectedId,
+                        progressTitle: selectedItem.title,
+                        selectedCollectionId: selectedCollectionId
+                    )
                 } else {
                     ContentUnavailableView(
                         "Choose a progress",
                         systemImage: "chevron.down.circle",
-                        description: Text("Select a progress from the picker above to view its calendar.")
+                        description: Text("Select a progress from the Home tab to view its calendar.")
                     )
                 }
             }
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
-                    progressPickerMenu
+                    collectionFilterMenu
+                }
+            }
+            .onAppear {
+                if collectionsListener == nil,
+                   let progressId = progressStore.selectedProgressId {
+                    setUpCollectionsListener(progressId: progressId)
+                }
+            }
+            .onDisappear {
+                tearDownCollectionsListener()
+            }
+            .onChange(of: progressStore.selectedProgressId) { _, newId in
+                tearDownCollectionsListener()
+                collections = []
+                selectedCollectionId = nil
+                if let newId {
+                    setUpCollectionsListener(progressId: newId)
                 }
             }
         }
     }
 
-    private var progressPickerMenu: some View {
+    // MARK: - Filter menu
+
+    private var collectionFilterMenu: some View {
         Menu {
-            Picker(
-                "Progress",
-                selection: Binding(
-                    get: { progressStore.selectedProgressId },
-                    set: { progressStore.selectProgress(id: $0) }
-                )
-            ) {
-                ForEach(progressStore.progresses) { item in
-                    Text(item.title).tag(Optional.some(item.id))
+            Button("All collections") { selectedCollectionId = nil }
+            if !collections.isEmpty {
+                Divider()
+                ForEach(collections) { collection in
+                    Button(collection.name) { selectedCollectionId = collection.id }
                 }
             }
         } label: {
             HStack(spacing: 4) {
-                Text(menuTitle)
+                Text(filterTitle)
                     .lineLimit(1)
                 Image(systemName: "chevron.down")
                     .font(.caption.weight(.semibold))
             }
         }
+        .accessibilityLabel("Filter by collection")
     }
 
-    private var menuTitle: String {
-        if let id = progressStore.selectedProgressId,
-           let item = progressStore.progresses.first(where: { $0.id == id }) {
-            return item.title
+    private var filterTitle: String {
+        if let id = selectedCollectionId,
+           let collection = collections.first(where: { $0.id == id }) {
+            return collection.name
         }
-        return "Select progress"
+        return "All collections"
+    }
+
+    // MARK: - Collections listener
+
+    private func setUpCollectionsListener(progressId: String) {
+        collectionsListener = activityCollectionService.setCollectionsListener(for: progressId) { fetched in
+            Task { @MainActor in
+                self.collections = fetched
+                // If the active filter points at a collection that no
+                // longer exists (e.g. it was deleted), drop back to "All".
+                if let selected = self.selectedCollectionId,
+                   !fetched.contains(where: { $0.id == selected }) {
+                    self.selectedCollectionId = nil
+                }
+            }
+        }
+    }
+
+    private func tearDownCollectionsListener() {
+        collectionsListener?.remove()
+        collectionsListener = nil
     }
 }

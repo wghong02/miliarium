@@ -93,7 +93,7 @@ Test scope tags:
 ### 3.2 Switch between progresses 🖼
 
 **Behavior**
-- The user picks a progress from the top-left menu on Home / Calendar / Map tabs.
+- The user picks a progress from the top-left menu on the Home tab. (On Calendar and Map, the top-left is the collection filter — progress selection only happens on Home and is shared across all tabs.)
 
 **Expectations**
 - Selecting a different progress updates the displayed title, summary, collections, calendar contents, and map pins.
@@ -310,6 +310,18 @@ Test scope tags:
 - Creating an activity with the default fields adds a dot to the selected day in the grid.
 - The user can still toggle off time, in which case the activity won't appear in the calendar afterward.
 
+### 6.4 Collection filter 🖼
+
+**Behavior**
+- The top-left toolbar shows a "collection filter" menu. Default selection is **"All collections"** (no filter).
+- The menu lists every collection for the active progress, with "All collections" pinned at the top.
+
+**Expectations**
+- When set to "All collections", both the month-grid dot indicators and the daily activities list include every timed activity for the active progress.
+- Selecting a specific collection hides dots and rows for activities not in that collection.
+- Switching to a different progress on the Home tab resets this filter to "All collections".
+- Deleting the currently-selected collection elsewhere resets this filter to "All collections" automatically (no stale selection).
+
 ---
 
 ## 7. Map tab
@@ -380,6 +392,19 @@ Test scope tags:
 
 **Expectations**
 - Empty state disappears as soon as at least one pin exists or a search is in progress.
+
+### 7.7 Collection filter 🖼
+
+**Behavior**
+- The top-left toolbar shows a "collection filter" menu. Default selection is **"All collections"** (no filter).
+- The menu lists every collection for the active progress, with "All collections" pinned at the top.
+
+**Expectations**
+- When set to "All collections", every activity with a location is plotted.
+- Selecting a specific collection hides pins that don't belong to that collection.
+- The camera re-fits to the visible pins whenever the filter changes (so a small filtered set fills the screen).
+- Switching to a different progress on the Home tab resets this filter to "All collections".
+- Deleting the currently-selected collection elsewhere resets this filter to "All collections" automatically.
 
 ---
 

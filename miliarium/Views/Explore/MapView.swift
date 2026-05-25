@@ -18,17 +18,28 @@ import FirebaseFirestore
 struct MapView: View {
     let progressItemId: String
     let progressTitle: String
+    /// Collections list owned by `ExploreSectionView`; used to render the
+    /// per-pin "add to collection" menu.
+    let collections: [ActivityCollection]
+    /// Active collection filter coming from the section view's toolbar
+    /// picker. `nil` means show pins from every collection.
+    let selectedCollectionId: String?
 
     @State private var activitiesWithLocation: [Activity] = []
-    @State private var allCollections: [ActivityCollection] = []
     @State private var activitiesListener: ListenerRegistration?
-    @State private var collectionsListener: ListenerRegistration?
-    @State private var listenersInitialized = false
+    @State private var listenerInitialized = false
     @State private var isLoading = false
     @State private var errorMessage: String?
 
     @State private var cameraPosition: MapCameraPosition = .automatic
     @State private var hasFitCameraInitially = false
+
+    /// Activities passing both `hasLocation` (already filtered when the
+    /// listener writes) and the optional collection filter.
+    private var filteredActivitiesWithLocation: [Activity] {
+        guard let selectedCollectionId else { return activitiesWithLocation }
+        return activitiesWithLocation.filter { $0.collectionIds.contains(selectedCollectionId) }
+    }
 
     // Search
     @State private var searchModel = LocationSearchModel()
@@ -92,22 +103,27 @@ struct MapView: View {
                 }
             }
             .onAppear {
-                if !listenersInitialized {
-                    setUpListeners()
-                    listenersInitialized = true
+                if !listenerInitialized {
+                    setUpActivitiesListener()
+                    listenerInitialized = true
                 }
             }
             .onDisappear {
-                tearDownListeners()
+                tearDownActivitiesListener()
                 hasFitCameraInitially = false
             }
             .onChange(of: progressItemId) { _, _ in
-                tearDownListeners()
+                tearDownActivitiesListener()
                 activitiesWithLocation = []
-                allCollections = []
                 hasFitCameraInitially = false
-                setUpListeners()
-                listenersInitialized = true
+                setUpActivitiesListener()
+                listenerInitialized = true
+            }
+            .onChange(of: selectedCollectionId) { _, _ in
+                // When the filter changes, refit the camera so newly
+                // visible pins fill the screen instead of being lost off
+                // the edge.
+                fitCameraToActivities()
             }
         }
     }
@@ -116,7 +132,7 @@ struct MapView: View {
 
     private var mapContent: some View {
         Map(position: $cameraPosition) {
-            ForEach(activitiesWithLocation) { activity in
+            ForEach(filteredActivitiesWithLocation) { activity in
                 if let coord = activity.coordinate {
                     Annotation(
                         annotationLabel(for: activity),
@@ -160,11 +176,11 @@ struct MapView: View {
     /// when already a member) plus an "Edit details" escape hatch.
     private func activityPinMenu(for activity: Activity) -> some View {
         Menu {
-            if allCollections.isEmpty {
+            if collections.isEmpty {
                 Text("No collections yet")
             } else {
                 Section("Collections") {
-                    ForEach(allCollections) { collection in
+                    ForEach(collections) { collection in
                         Button {
                             Task { await toggleMembership(activity: activity, collection: collection) }
                         } label: {
@@ -204,7 +220,7 @@ struct MapView: View {
             searchBar
             if !searchModel.results.isEmpty {
                 searchResultsCard
-            } else if activitiesWithLocation.isEmpty && !isLoading && searchModel.query.isEmpty {
+            } else if filteredActivitiesWithLocation.isEmpty && !isLoading && searchModel.query.isEmpty {
                 emptyStateCard
             }
             if let errorMessage {
@@ -296,7 +312,7 @@ struct MapView: View {
 
     private var recenterButton: some View {
         Group {
-            if !activitiesWithLocation.isEmpty {
+            if !filteredActivitiesWithLocation.isEmpty {
                 Button {
                     fitCameraToActivities()
                 } label: {
@@ -395,34 +411,30 @@ struct MapView: View {
 
     // MARK: - Data
 
-    private func setUpListeners() {
+    private func setUpActivitiesListener() {
         isLoading = true
         activitiesListener = activityService.setActivitiesListener(for: progressItemId) { fetched in
             self.activitiesWithLocation = fetched.filter { $0.hasLocation }
-            if !self.hasFitCameraInitially && !self.activitiesWithLocation.isEmpty {
+            if !self.hasFitCameraInitially && !self.filteredActivitiesWithLocation.isEmpty {
                 self.fitCameraToActivities()
                 self.hasFitCameraInitially = true
             }
             self.isLoading = false
             self.errorMessage = nil
         }
-        collectionsListener = activityCollectionService.setCollectionsListener(for: progressItemId) { fetched in
-            self.allCollections = fetched
-        }
     }
 
-    private func tearDownListeners() {
+    private func tearDownActivitiesListener() {
         activitiesListener?.remove()
-        collectionsListener?.remove()
         activitiesListener = nil
-        collectionsListener = nil
-        listenersInitialized = false
+        listenerInitialized = false
     }
 
-    /// Set the camera region to a bounding box that includes every pinned
-    /// activity, padded slightly so pins aren't on the very edge.
+    /// Set the camera region to a bounding box that includes every currently
+    /// visible pin (respecting the active collection filter), padded
+    /// slightly so pins aren't on the very edge.
     private func fitCameraToActivities() {
-        let coords = activitiesWithLocation.compactMap { $0.coordinate }
+        let coords = filteredActivitiesWithLocation.compactMap { $0.coordinate }
         guard !coords.isEmpty else { return }
 
         let lats = coords.map { $0.latitude }
