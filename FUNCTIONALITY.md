@@ -94,10 +94,12 @@ Test scope tags:
 
 **Behavior**
 - The user picks a progress from the top-left menu on the Home tab. (On Calendar and Map, the top-left is the collection filter — progress selection only happens on Home and is shared across all tabs.)
+- The Home top-left menu label is a constant icon (`square.stack.fill` + a small chevron). It does NOT change to reflect the selected progress's title — selection is shown inside the menu via the SwiftUI `Picker` checkmark.
 
 **Expectations**
 - Selecting a different progress updates the displayed title, summary, collections, calendar contents, and map pins.
 - The selection persists across tabs (Calendar and Map show the same progress as Home).
+- The Home top-left label width is fixed regardless of progress name length.
 
 ### 3.3 Edit summary 🖼 🧩
 
@@ -315,12 +317,14 @@ Test scope tags:
 **Behavior**
 - The top-left toolbar shows a "collection filter" menu. Default selection is **"All collections"** (no filter).
 - The menu lists every collection for the active progress, with "All collections" pinned at the top.
+- The menu's label is a constant icon (`line.3.horizontal.decrease.circle` + a small chevron). It does NOT change to reflect the selected collection — the current selection is shown inside the menu.
 
 **Expectations**
 - When set to "All collections", both the month-grid dot indicators and the daily activities list include every timed activity for the active progress.
 - Selecting a specific collection hides dots and rows for activities not in that collection.
 - Switching to a different progress on the Home tab resets this filter to "All collections".
 - Deleting the currently-selected collection elsewhere resets this filter to "All collections" automatically (no stale selection).
+- The top-left label width is fixed regardless of collection name length.
 
 ---
 
@@ -398,6 +402,7 @@ Test scope tags:
 **Behavior**
 - The top-left toolbar shows a "collection filter" menu. Default selection is **"All collections"** (no filter).
 - The menu lists every collection for the active progress, with "All collections" pinned at the top.
+- The menu's label is a constant icon (`line.3.horizontal.decrease.circle` + a small chevron) — same symbol as the Calendar tab's filter for consistency. It does NOT change to reflect the selected collection.
 
 **Expectations**
 - When set to "All collections", every activity with a location is plotted.
@@ -405,6 +410,7 @@ Test scope tags:
 - The camera re-fits to the visible pins whenever the filter changes (so a small filtered set fills the screen).
 - Switching to a different progress on the Home tab resets this filter to "All collections".
 - Deleting the currently-selected collection elsewhere resets this filter to "All collections" automatically.
+- The top-left label width is fixed regardless of collection name length.
 
 ---
 

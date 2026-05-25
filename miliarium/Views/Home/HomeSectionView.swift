@@ -114,24 +114,12 @@ struct HomeSectionView: View {
             }
         } label: {
             HStack(spacing: 4) {
-                Text(menuTitle)
-                    .lineLimit(1)
+                Image(systemName: "square.stack.fill")
                 Image(systemName: "chevron.down")
                     .font(.caption.weight(.semibold))
             }
         }
         .accessibilityLabel("Choose progress")
-    }
-
-    private var menuTitle: String {
-        if progressStore.progresses.isEmpty {
-            return "Progress"
-        }
-        if let id = progressStore.selectedProgressId,
-           let item = progressStore.progresses.first(where: { $0.id == id }) {
-            return item.title
-        }
-        return "Progress"
     }
 
     @ViewBuilder
