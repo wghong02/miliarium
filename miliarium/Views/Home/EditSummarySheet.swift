@@ -12,12 +12,11 @@ struct EditSummarySheet: View {
     @State private var isUpdating = false
     @State private var errorMessage: String?
 
-    private let characterLimit = 120
     private var isOverLimit: Bool {
-        summary.count > characterLimit
+        summary.count > TextLimits.summary
     }
     private var remainingCharacters: Int {
-        max(0, characterLimit - summary.count)
+        max(0, TextLimits.summary - summary.count)
     }
 
     var body: some View {
@@ -30,9 +29,11 @@ struct EditSummarySheet: View {
                     HStack {
                         Text("Summary")
                         Spacer()
-                        Text("\(summary.count)/\(characterLimit)")
-                            .font(.caption)
-                            .foregroundStyle(isOverLimit ? .red : .secondary)
+                        CharacterCounter(
+                            count: summary.count,
+                            limit: TextLimits.summary,
+                            style: .locking
+                        )
                     }
                 }
 

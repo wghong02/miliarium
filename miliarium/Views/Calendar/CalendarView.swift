@@ -12,10 +12,21 @@ import FirebaseFirestore
 struct CalendarView: View {
     let progressItemId: String
     let progressTitle: String
+    /// When non-nil, only activities that belong to this collection are
+    /// shown (both in the month-grid dot indicators and the daily list).
+    let selectedCollectionId: String?
 
     @State private var currentDate = Date()
     @State private var selectedDate: Date?
     @State private var allTimedActivities: [Activity] = []
+
+    /// Activities passing both the time filter (already filtered when the
+    /// listener writes `allTimedActivities`) and the optional collection
+    /// filter coming from the section view's toolbar picker.
+    private var filteredActivities: [Activity] {
+        guard let selectedCollectionId else { return allTimedActivities }
+        return allTimedActivities.filter { $0.collectionIds.contains(selectedCollectionId) }
+    }
     @State private var isLoading = false
     @State private var errorMessage: String?
     @State private var listener: ListenerRegistration?
@@ -230,7 +241,7 @@ struct CalendarView: View {
     // MARK: - Daily activities list
 
     private func dailyActivitiesList(for date: Date) -> some View {
-        let dateActivities = allTimedActivities
+        let dateActivities = filteredActivities
             .filter { activity in
                 guard let ts = activity.timestamp else { return false }
                 return Foundation.Calendar.current.isDate(ts, inSameDayAs: date)
@@ -310,7 +321,7 @@ struct CalendarView: View {
     }
 
     private func hasActivitiesOnDate(_ date: Date) -> Bool {
-        allTimedActivities.contains { activity in
+        filteredActivities.contains { activity in
             guard let ts = activity.timestamp else { return false }
             return Foundation.Calendar.current.isDate(ts, inSameDayAs: date)
         }

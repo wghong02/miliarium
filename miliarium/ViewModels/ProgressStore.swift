@@ -9,9 +9,7 @@ private enum CreateProgressFailure: Error {
 /// Progress data lives in `progressItems/{progressItemId}`.
 /// Per-user membership is tracked in `users/{userId}/progressLinks/{progressItemId}` (document id matches the item id).
 /// Each progress owns two subcollections — `activities/{id}` and `collections/{id}` — that
-/// together implement the unified activities model. (Legacy `calendars/{id}/events` data
-/// from before the migration is still cascade-cleaned by `deleteProgress` but no longer
-/// created or read.)
+/// together implement the unified activities model.
 @Observable
 @MainActor
 final class ProgressStore {
@@ -221,79 +219,66 @@ final class ProgressStore {
         }
     }
 
-    /// Deletes a progress item, its link, and its calendar (with all nested events via cascade delete).
+    /// Deletes a progress item and everything that references it: every
+    /// invitation, every activity, every collection, and the
+    /// `progressLinks/{progressId}` doc under *every* user (owner +
+    /// collaborators). Only the owner may delete; collaborators get an
+    /// authorization error.
+    ///
+    /// The cross-user link cleanup uses a `progressLinks` collection-group
+    /// query — a matching collection-group index on the `progressItemId`
+    /// field is required (Firebase will surface a "create index" deep link
+    /// the first time the query runs).
+    ///
     /// - Parameter progressId: The ID of the progress item to delete
     /// - Returns: `true` if deletion succeeded, `false` otherwise
     @discardableResult
     func deleteProgress(progressId: String) async -> Bool {
-        guard let userId else {
+        guard userId != nil else {
             errorMessage = "User not authenticated"
+            return false
+        }
+        guard isOwner(of: progressId) else {
+            errorMessage = "Only the owner can delete this progress."
             return false
         }
 
         errorMessage = nil
         let db = Firestore.firestore()
-
-        // References to delete
         let progressRef = db.collection("progressItems").document(progressId)
-        let linkRef = db.collection("users").document(userId).collection("progressLinks").document(progressId)
 
-        // Find and delete calendar (cascade delete will handle nested events)
         do {
-            // Fetch all related invitations to delete them
+            // Fetch every doc that needs to be cascade-deleted.
             let invitationsSnapshot = try await db.collection("invitations")
                 .whereField("progressItemId", isEqualTo: progressId)
                 .getDocuments()
-            let calendarSnapshot = try await db.collection("calendars")
-                .whereField("progressItemId", isEqualTo: progressId)
-                .limit(to: 1)
-                .getDocuments()
-
-            // Fetch activities and collections subcollections for cascade delete.
             let activitiesSnapshot = try await progressRef
                 .collection("activities")
                 .getDocuments()
             let collectionsSnapshot = try await progressRef
                 .collection("collections")
                 .getDocuments()
+            // Every user's link to this progress — owner + all collaborators.
+            // Requires a collection-group index on `progressLinks.progressItemId`.
+            let linksSnapshot = try await db.collectionGroup("progressLinks")
+                .whereField("progressItemId", isEqualTo: progressId)
+                .getDocuments()
 
             let batch = db.batch()
 
-            // First, cascade delete the calendar and all its events
-            if let calendarDoc = calendarSnapshot.documents.first {
-                let calendarId = calendarDoc.documentID
-
-                // Fetch all events to delete them
-                let eventsSnapshot = try await db.collection("calendars")
-                    .document(calendarId)
-                    .collection("events")
-                    .getDocuments()
-
-                // Delete all events
-                for eventDoc in eventsSnapshot.documents {
-                    batch.deleteDocument(eventDoc.reference)
-                }
-
-                // Delete calendar
-                batch.deleteDocument(calendarDoc.reference)
-            }
-
-            // Delete all invitations related to this progress
             for invitationDoc in invitationsSnapshot.documents {
                 batch.deleteDocument(invitationDoc.reference)
             }
-
-            // Delete all activities and collections under this progress
             for activityDoc in activitiesSnapshot.documents {
                 batch.deleteDocument(activityDoc.reference)
             }
             for collectionDoc in collectionsSnapshot.documents {
                 batch.deleteDocument(collectionDoc.reference)
             }
-
-            // Delete progress and link
+            for linkDoc in linksSnapshot.documents {
+                batch.deleteDocument(linkDoc.reference)
+            }
             batch.deleteDocument(progressRef)
-            batch.deleteDocument(linkRef)
 
             // Commit batch (all deletions atomic)
             try await withThrowingTaskGroup(of: Void.self) { group in
@@ -307,7 +292,7 @@ final class ProgressStore {
                 try await group.next()
                 group.cancelAll()
             }
-            
+
             return true
         } catch CreateProgressFailure.timedOut {
             errorMessage = "Couldn't delete progress in time. Check your connection and try again."
