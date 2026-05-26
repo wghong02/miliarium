@@ -199,6 +199,26 @@ class ActivityCollectionService {
 
     // MARK: - Listener
 
+    /// Listens to a single collection document and calls `onChange` whenever
+    /// it changes. The callback receives `nil` if the document is deleted.
+    func setCollectionListener(
+        id: String,
+        progressItemId: String,
+        onChange: @escaping (ActivityCollection?) -> Void
+    ) -> ListenerRegistration {
+        let ref = collectionsRef(for: progressItemId).document(id)
+        AppLogger.activityCollection.debug("setCollectionListener id=\(id) progressId=\(progressItemId)")
+        return ref.addSnapshotListener { snapshot, error in
+            if let error {
+                AppLogger.activityCollection.error("collectionListener error id=\(id): \(error)")
+                return
+            }
+            let collection = snapshot.flatMap { ActivityCollection(document: $0) }
+            AppLogger.activityCollection.debug("collectionListener update id=\(id) exists=\(collection != nil)")
+            onChange(collection)
+        }
+    }
+
     func setCollectionsListener(
         for progressItemId: String,
         onChange: @escaping ([ActivityCollection]) -> Void

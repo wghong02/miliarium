@@ -16,6 +16,10 @@ struct CollectionsSection: View {
     @State private var showCreateCollection = false
     @State private var showCreateActivity = false
     @State private var showOnlyFavorites = false
+    /// The collection whose detail sheet is currently open. Hoisted here so
+    /// SwiftUI only manages one sheet per view tree branch (sheets inside
+    /// ForEach/List rows are unreliable).
+    @State private var detailCollection: ActivityCollection?
 
     private var visibleCollections: [ActivityCollection] {
         let filtered = showOnlyFavorites
@@ -55,6 +59,7 @@ struct CollectionsSection: View {
                         CollectionRowView(
                             collection: collection,
                             progressItemId: progressItemId,
+                            onTap: { detailCollection = collection },
                             onDelete: {
                                 Task { await deleteCollection(collection) }
                             }
@@ -76,6 +81,14 @@ struct CollectionsSection: View {
                     .font(.caption)
                     .foregroundStyle(.red)
                     .padding()
+            }
+        }
+        .sheet(item: $detailCollection) { collection in
+            CollectionDetailView(
+                collection: collection,
+                progressItemId: progressItemId
+            ) {
+                detailCollection = nil
             }
         }
         .sheet(isPresented: $showCreateCollection) {
@@ -199,9 +212,9 @@ struct CollectionsSection: View {
 struct CollectionRowView: View {
     let collection: ActivityCollection
     let progressItemId: String
+    var onTap: () -> Void = {}
     var onDelete: () -> Void = {}
 
-    @State private var isEditing = false
     @State private var isTogglingFavorite = false
 
     var body: some View {
@@ -249,22 +262,12 @@ struct CollectionRowView: View {
         .background(Color(.systemBackground).opacity(0.5))
         .cornerRadius(6)
         .contentShape(Rectangle())
-        .onTapGesture {
-            isEditing = true
-        }
+        .onTapGesture { onTap() }
         .swipeActions(edge: .trailing, allowsFullSwipe: true) {
             if !collection.isDefault {
                 Button(role: .destructive, action: onDelete) {
                     Text("Delete")
                 }
-            }
-        }
-        .sheet(isPresented: $isEditing) {
-            EditCollectionSheet(
-                collection: collection,
-                progressItemId: progressItemId
-            ) {
-                isEditing = false
             }
         }
     }

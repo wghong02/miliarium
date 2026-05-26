@@ -1,9 +1,8 @@
 import SwiftUI
-import FirebaseFirestore
 
-/// Minimal form for creating a new `ActivityCollection`. Step 1 of the UI
-/// redesign — listing of member activities lives in a separate detail view
-/// that we'll wire up alongside the activity create/edit sheet.
+/// Form for creating a new `ActivityCollection`. Pure metadata input — the
+/// list of member activities is owned by `CollectionDetailView`, which is
+/// opened by tapping a collection row on the Home tab.
 struct CreateCollectionSheet: View {
     @Environment(\.dismiss) private var dismiss
 
@@ -101,6 +100,11 @@ struct CreateCollectionSheet: View {
 
 /// Editable sheet for an existing collection. Shows metadata (name, notes,
 /// favorite), a "Refresh stats" action, and delete (hidden for default).
+///
+/// Opened from the "Edit details" row inside `CollectionDetailView`. The
+/// activity list itself is intentionally NOT shown here — that's the detail
+/// view's job. Keeping the two concerns separate avoids holding two parallel
+/// activity listeners against the same data.
 struct EditCollectionSheet: View {
     @Environment(\.dismiss) private var dismiss
 
@@ -117,19 +121,6 @@ struct EditCollectionSheet: View {
     @State private var errorMessage: String?
     @State private var currentStats: ActivityCollectionStats = .empty
     @State private var lastStatsUpdate: Date?
-
-    // Activity listing
-    @State private var allActivities: [Activity] = []
-    @State private var memberActivityIds: Set<String> = []
-    @State private var activitiesListener: ListenerRegistration?
-    @State private var activitiesListenerInitialized = false
-    @State private var editingActivity: Activity?
-
-    private var memberActivities: [Activity] {
-        allActivities
-            .filter { memberActivityIds.contains($0.id) }
-            .sorted { $0.createdAt > $1.createdAt }
-    }
 
     private var trimmedName: String {
         name.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -179,8 +170,6 @@ struct EditCollectionSheet: View {
                     .disabled(isRefreshingStats)
                 }
 
-                activitiesSection
-
                 if let error = errorMessage {
                     Section {
                         Text(error)
@@ -229,24 +218,6 @@ struct EditCollectionSheet: View {
                 isFavorite = collection.isFavorite
                 currentStats = collection.stats
                 lastStatsUpdate = collection.statsUpdatedAt
-                memberActivityIds = Set(collection.activityIds)
-                if !activitiesListenerInitialized {
-                    setUpActivitiesListener()
-                    activitiesListenerInitialized = true
-                }
-            }
-            .onDisappear {
-                activitiesListener?.remove()
-                activitiesListenerInitialized = false
-            }
-            .sheet(item: $editingActivity) { activity in
-                EditActivitySheet(
-                    activity: activity,
-                    progressItemId: progressItemId
-                ) {
-                    editingActivity = nil
-                    Task { await refreshMembership() }
-                }
             }
             .alert("Delete Collection?", isPresented: $showDeleteAlert) {
                 Button("Cancel") {
@@ -329,94 +300,11 @@ struct EditCollectionSheet: View {
             }
         }
     }
-
-    // MARK: - Activities
-
-    @ViewBuilder
-    private var activitiesSection: some View {
-        Section {
-            if memberActivities.isEmpty {
-                Text("No activities in this collection yet.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            } else {
-                ForEach(memberActivities) { activity in
-                    ActivityMemberRow(activity: activity)
-                        .contentShape(Rectangle())
-                        .onTapGesture { editingActivity = activity }
-                        .swipeActions(edge: .trailing, allowsFullSwipe: true) {
-                            Button(role: .destructive) {
-                                Task { await removeFromCollection(activity) }
-                            } label: {
-                                Text("Remove")
-                            }
-                        }
-                }
-            }
-        } header: {
-            HStack {
-                Text("Activities")
-                Spacer()
-                Text("\(memberActivities.count)")
-                    .font(.caption)
-                    .textCase(nil)
-                    .foregroundStyle(.secondary)
-            }
-        } footer: {
-            if !memberActivities.isEmpty {
-                Text("Swipe a row to remove it from this collection (the activity itself isn't deleted).")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-            }
-        }
-    }
-
-    private func setUpActivitiesListener() {
-        activitiesListener = activityService.setActivitiesListener(for: progressItemId) { fetched in
-            self.allActivities = fetched
-        }
-    }
-
-    /// Re-reads the collection doc to refresh `memberActivityIds` after an
-    /// edit in the activity sheet may have changed the activity's collection
-    /// membership.
-    private func refreshMembership() async {
-        do {
-            if let fresh = try await activityCollectionService
-                .fetchCollection(id: collection.id, for: progressItemId) {
-                await MainActor.run {
-                    memberActivityIds = Set(fresh.activityIds)
-                }
-            }
-        } catch {
-            // Best-effort refresh — keep the local set if the fetch fails.
-        }
-    }
-
-    private func removeFromCollection(_ activity: Activity) async {
-        do {
-            try await activityService.removeActivity(
-                activity.id,
-                fromCollection: collection.id,
-                progressItemId: progressItemId
-            )
-            await MainActor.run {
-                // `Set.remove` returns the removed element; explicitly drop
-                // it so the closure's inferred return type is `Void` and
-                // `MainActor.run` doesn't yield an unused result.
-                _ = memberActivityIds.remove(activity.id)
-            }
-        } catch {
-            await MainActor.run {
-                errorMessage = error.localizedDescription
-            }
-        }
-    }
 }
 
-// MARK: - Activity row used inside EditCollectionSheet
+// MARK: - Activity row (shared with CollectionDetailView)
 
-private struct ActivityMemberRow: View {
+struct ActivityMemberRow: View {
     let activity: Activity
 
     var body: some View {
