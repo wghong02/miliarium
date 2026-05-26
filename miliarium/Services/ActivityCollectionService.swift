@@ -10,8 +10,6 @@ import FirebaseFirestore
 class ActivityCollectionService {
     private let db = Firestore.firestore()
 
-    nonisolated static let defaultCollectionName = "default collection"
-
     // MARK: - Ref helpers
 
     private func collectionsRef(for progressItemId: String) -> CollectionReference {
@@ -32,14 +30,12 @@ class ActivityCollectionService {
         progressItemId: String,
         name: String,
         notes: String? = nil,
-        isFavorite: Bool = false,
-        isDefault: Bool = false
+        isFavorite: Bool = false
     ) async throws -> ActivityCollection {
         let collection = ActivityCollection(
             name: name,
             notes: notes,
-            isFavorite: isFavorite,
-            isDefault: isDefault
+            isFavorite: isFavorite
         )
 
         AppLogger.activityCollection.debug("createCollection progressId=\(progressItemId) name=\(name)")
@@ -78,21 +74,6 @@ class ActivityCollectionService {
             return ActivityCollection(document: doc)
         } catch {
             AppLogger.activityCollection.error("fetchCollection failed id=\(id): \(error)")
-            throw error
-        }
-    }
-
-    /// Returns the (first) default collection for a progress, if one exists.
-    func fetchDefaultCollection(for progressItemId: String) async throws -> ActivityCollection? {
-        AppLogger.activityCollection.debug("fetchDefaultCollection progressId=\(progressItemId)")
-        do {
-            let snapshot = try await collectionsRef(for: progressItemId)
-                .whereField("isDefault", isEqualTo: true)
-                .limit(to: 1)
-                .getDocuments()
-            return snapshot.documents.first.flatMap { ActivityCollection(document: $0) }
-        } catch {
-            AppLogger.activityCollection.error("fetchDefaultCollection failed progressId=\(progressItemId): \(error)")
             throw error
         }
     }
@@ -157,18 +138,14 @@ class ActivityCollectionService {
 
     // MARK: - Delete
 
-    /// Deletes a collection. The default collection cannot be deleted.
-    /// Activities remain — their `collectionIds` are cleaned of the removed
-    /// collection's ID in the same atomic batch.
+    /// Deletes a collection. Any collection can be deleted — activities remain
+    /// (their `collectionIds` are cleaned of the removed collection's ID in
+    /// the same atomic batch). An orphaned activity with no collections still
+    /// appears in the virtual "All activities" view.
     func deleteCollection(
         _ collection: ActivityCollection,
         progressItemId: String
     ) async throws {
-        if collection.isDefault {
-            AppLogger.activityCollection.error("deleteCollection rejected: cannot delete default collection id=\(collection.id)")
-            throw ActivityCollectionError.cannotDeleteDefault
-        }
-
         AppLogger.activityCollection.debug("deleteCollection id=\(collection.id) progressId=\(progressItemId) memberCount=\(collection.activityIds.count)")
         let batch = db.batch()
         let now = Timestamp(date: Date())
@@ -253,17 +230,6 @@ class ActivityCollectionService {
                     continuation.resume(returning: ())
                 }
             }
-        }
-    }
-}
-
-enum ActivityCollectionError: LocalizedError {
-    case cannotDeleteDefault
-
-    var errorDescription: String? {
-        switch self {
-        case .cannotDeleteDefault:
-            return "The default collection cannot be deleted."
         }
     }
 }

@@ -88,7 +88,7 @@ Test scope tags:
 **Expectations**
 - The Create button is disabled when the title is empty or whitespace-only.
 - After successful creation, the new progress is selected and visible on the Home tab.
-- A "default collection" exists for the new progress (visible in the Collections section).
+- The new progress starts with **no collections** — only the synthetic "All activities" row is shown until the user creates one.
 
 ### 3.2 Switch between progresses 🖼
 
@@ -139,17 +139,19 @@ Test scope tags:
 
 **Behavior**
 - The Home tab shows a "Collections" section with a list of collections for the active progress.
+- A **synthetic "All activities"** row is pinned to the top of the list when the filter is set to "All". It is NOT a real collection — it has no star, no swipe-delete, and no edit-details affordance. Tapping it opens §4.8.
 - A filter row offers "All" vs "Favourites".
-- Each row has a star icon on the left: filled yellow star for favourites, unfilled star for non-favourites.
+- Each real collection row has a star icon on the left: filled yellow star for favourites, unfilled star for non-favourites.
 - Tapping the star icon toggles the collection's favourite status directly from the list (no need to open the edit sheet).
 
 **Expectations**
-- Each row shows: star icon (filled if favourite, unfilled otherwise), collection name, optional "default" badge, and a stats line.
+- The "All activities" row is shown when filter = "All"; hidden when filter = "Favourites".
+- Each collection row shows: star icon (filled if favourite, unfilled otherwise), collection name, and a stats line. There is no special "default" badge — every collection is equal.
 - Tapping the star immediately persists the change; the icon updates when the listener reflects the write.
 - The star is disabled while a toggle is in flight to prevent double-taps.
-- Favourite collections sort first; the default collection sorts next; others by creation order.
+- Favourite collections sort first; others by creation order.
 - Selecting "Favourites" hides non-favourite collections.
-- Empty state: "No collections yet · Tap + to create one".
+- Empty collections state (still shows the "All activities" row): "No collections yet · Tap + to create one".
 
 ### 4.2 Create a collection 🖼
 
@@ -207,23 +209,37 @@ Test scope tags:
 ### 4.6 Delete a collection 🖼
 
 **Behavior**
-- The Edit Collection sheet (§4.4) offers Delete for any non-default collection.
-- Default collection cannot be deleted (the Delete section is hidden).
+- The Edit Collection sheet (§4.4) offers a Delete button for every collection.
 
 **Expectations**
 - Tapping Delete shows a confirmation alert.
 - Confirming dismisses both the edit sheet and the detail sheet, removing the collection from the home list.
-- Activities that were in the collection still exist — they're just no longer listed under that collection.
+- Activities that were in the collection still exist — they're just no longer listed under that collection. Activities orphaned by the delete still appear in the "All activities" view (§4.8).
 
 ### 4.7 Swipe-to-delete on rows 🖼
 
 **Behavior**
-- Swipe left on a non-default collection row in the home list → red Delete action.
-- Default collection has no swipe action.
+- Swipe left on any collection row in the home list → red Delete action.
+- The "All activities" row has no swipe action (it isn't a collection).
 
 **Expectations**
 - Swipe action triggers deletion (no extra confirmation needed for swipe).
-- Swiping the default collection row reveals no destructive action.
+- Swiping the synthetic "All activities" row reveals no actions.
+
+### 4.8 All activities view 🖼
+
+**Behavior**
+- The synthetic "All activities" row at the top of the home list opens a sheet titled "All activities".
+- The sheet lists every activity for the active progress (regardless of collection membership), newest first.
+- A toolbar "+" opens Create Activity.
+- Tapping a row opens the Edit Activity sheet.
+- The list includes activities that belong to zero collections.
+
+**Expectations**
+- No "Edit details" row appears at the top — "All" is not a real collection.
+- No swipe-to-remove action on any row — every activity is implicitly in "All".
+- Adding or deleting an activity elsewhere is reflected in this list in real time.
+- Empty state: `ContentUnavailableView` with title "No activities yet" and "Tap + to add your first activity."
 
 ---
 
@@ -236,9 +252,10 @@ Test scope tags:
 - The Create button lives in the top-right of the toolbar; Cancel is top-left.
 
 **Expectations**
-- The Create button is disabled until: title is non-empty AND at least one collection is selected.
+- The Create button is disabled until the title is non-empty (whitespace doesn't count).
+- Collection selection is **optional**. Activities created with zero collections still appear in the "All activities" view (§4.8).
 - Tapping Create shows a spinner in the toolbar in place of the button.
-- On success, the sheet dismisses and the new activity is reflected in collection stats (after refresh).
+- On success, the sheet dismisses and the new activity is reflected in collection stats (after refresh) for any collections it was added to.
 
 ### 5.2 Time dimension 🖼
 
@@ -283,14 +300,14 @@ Test scope tags:
 **Behavior**
 - A "Collections" section lists all collections for the current progress.
 - Each row has a checkmark for selected collections.
-- The default collection is auto-selected when opening Create (not for Edit).
+- No row is pre-selected — the user explicitly picks zero or more collections.
 - The header shows "N selected" when at least one is checked.
-- The footer warns "Select at least one collection." when none are checked.
+- The footer always reads: "Optional. Activities without a collection still appear in 'All activities'."
 
 **Expectations**
 - Tapping a row toggles its membership.
-- Create is disabled when zero collections are selected.
-- On save, the activity is reflected as a member of every selected collection.
+- Selecting zero collections is allowed; the activity becomes "unfiled" and only appears in the "All activities" view (§4.8).
+- On save, the activity is reflected as a member of every selected collection (which may be the empty set).
 
 ### 5.6 Edit activity 🖼
 

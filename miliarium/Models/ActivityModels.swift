@@ -152,8 +152,9 @@ struct ActivityCollectionStats: Sendable, Codable, Hashable {
 }
 
 /// An ActivityCollection groups Activities under a progress item. Activities
-/// can belong to multiple collections (many-to-many). Every progress comes
-/// with a "default collection" so new activities always have a home.
+/// can belong to multiple collections (many-to-many), or to none — in which
+/// case they only appear in the virtual "All activities" view on the Home
+/// tab. There is no special "default" collection in the data model.
 struct ActivityCollection: Identifiable, Hashable, Sendable, Codable {
     let id: String
     var name: String
@@ -161,10 +162,6 @@ struct ActivityCollection: Identifiable, Hashable, Sendable, Codable {
 
     /// User-facing pinning flag used for sorting / surfacing in the UI.
     var isFavorite: Bool
-
-    /// The auto-created starter collection for a progress. Used to find the
-    /// fallback target when no collection is selected.
-    var isDefault: Bool
 
     /// IDs of activities in this collection.
     var activityIds: [String]
@@ -185,7 +182,6 @@ struct ActivityCollection: Identifiable, Hashable, Sendable, Codable {
         name: String,
         notes: String? = nil,
         isFavorite: Bool = false,
-        isDefault: Bool = false,
         activityIds: [String] = [],
         stats: ActivityCollectionStats = .empty,
         statsUpdatedAt: Date? = nil,
@@ -196,7 +192,6 @@ struct ActivityCollection: Identifiable, Hashable, Sendable, Codable {
         self.name = name
         self.notes = notes
         self.isFavorite = isFavorite
-        self.isDefault = isDefault
         self.activityIds = activityIds
         self.stats = stats
         self.statsUpdatedAt = statsUpdatedAt
@@ -224,12 +219,14 @@ struct ActivityCollection: Identifiable, Hashable, Sendable, Codable {
             timeCount: statsData["timeCount"] as? Int ?? 0
         )
 
+        // Legacy "isDefault" field in older Firestore docs is ignored — the
+        // default-collection concept was removed; those rows are now regular
+        // collections.
         self.init(
             id: document.documentID,
             name: name,
             notes: data["notes"] as? String,
             isFavorite: data["isFavorite"] as? Bool ?? false,
-            isDefault: data["isDefault"] as? Bool ?? false,
             activityIds: data["activityIds"] as? [String] ?? [],
             stats: stats,
             statsUpdatedAt: (data["statsUpdatedAt"] as? Timestamp)?.dateValue(),
@@ -256,7 +253,6 @@ struct ActivityCollection: Identifiable, Hashable, Sendable, Codable {
         var map: [String: Any] = [
             "name": name,
             "isFavorite": isFavorite,
-            "isDefault": isDefault,
             "activityIds": activityIds,
             "stats": statsMap,
             "createdAt": Timestamp(date: createdAt),

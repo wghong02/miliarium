@@ -79,8 +79,7 @@ struct CreateCollectionSheet: View {
                     notes: notes.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                         ? nil
                         : notes.trimmingCharacters(in: .whitespacesAndNewlines),
-                    isFavorite: isFavorite,
-                    isDefault: false
+                    isFavorite: isFavorite
                 )
 
                 await MainActor.run {
@@ -191,14 +190,12 @@ struct EditCollectionSheet: View {
                     .disabled(trimmedName.isEmpty || isUpdating)
                 }
 
-                if !collection.isDefault {
-                    Section {
-                        Button(role: .destructive) {
-                            showDeleteAlert = true
-                        } label: {
-                            Text("Delete")
-                                .frame(maxWidth: .infinity)
-                        }
+                Section {
+                    Button(role: .destructive) {
+                        showDeleteAlert = true
+                    } label: {
+                        Text("Delete")
+                            .frame(maxWidth: .infinity)
                     }
                 }
             }
