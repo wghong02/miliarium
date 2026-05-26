@@ -9,9 +9,8 @@ class LocationService: NSObject, CLLocationManagerDelegate {
     @ObservationIgnored
     private var locationContinuation: CheckedContinuation<CLLocationCoordinate2D, Error>?
 
-    var authorizationStatus: CLAuthorizationStatus {
-        locationManager.authorizationStatus
-    }
+    /// Stored so @Observable can track changes; updated by the delegate.
+    private(set) var authorizationStatus: CLAuthorizationStatus = .notDetermined
 
     var isLocationServiceEnabled: Bool {
         CLLocationManager.locationServicesEnabled()
@@ -21,6 +20,7 @@ class LocationService: NSObject, CLLocationManagerDelegate {
         super.init()
         locationManager.delegate = self
         locationManager.desiredAccuracy = kCLLocationAccuracyBest
+        authorizationStatus = locationManager.authorizationStatus
     }
 
     // MARK: - Permission Management
@@ -62,6 +62,10 @@ class LocationService: NSObject, CLLocationManagerDelegate {
     func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
         locationContinuation?.resume(throwing: error)
         locationContinuation = nil
+    }
+
+    func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
+        authorizationStatus = manager.authorizationStatus
     }
 }
 

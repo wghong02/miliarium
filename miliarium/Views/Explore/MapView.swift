@@ -1,5 +1,6 @@
 import SwiftUI
 import MapKit
+import OSLog
 import FirebaseFirestore
 
 /// Plots activities that have a location on a `Map`. Sourced from the unified
@@ -31,8 +32,18 @@ struct MapView: View {
     @State private var isLoading = false
     @State private var errorMessage: String?
 
+    // MARK: - Span constants
+    /// Tightest view: a city (~15 km). Also used when centering on the user's location.
+    private let minSpanDelta = 0.135
+    /// Widest view: a large region (~50 km).
+    private let maxSpanDelta = 0.45
+
     @State private var cameraPosition: MapCameraPosition = .automatic
     @State private var hasFitCameraInitially = false
+
+    // Current location
+    @State private var currentLocation: CLLocationCoordinate2D?
+    @State private var locationDenied = false
 
     /// Activities passing both `hasLocation` (already filtered when the
     /// listener writes) and the optional collection filter.
@@ -80,10 +91,7 @@ struct MapView: View {
                 }
             }
             .sheet(isPresented: $showCurrentLocationCreate) {
-                CreateActivitySheet(
-                    progressItemId: progressItemId,
-                    initialHasLocation: true
-                )
+                CreateActivitySheet(progressItemId: progressItemId)
             }
             .sheet(isPresented: $pendingPreviewCreate, onDismiss: clearSearchPreview) {
                 CreateActivitySheet(
@@ -112,12 +120,28 @@ struct MapView: View {
                 tearDownActivitiesListener()
                 hasFitCameraInitially = false
             }
+            .task {
+                await fetchCurrentLocation()
+            }
+            .onChange(of: locationService.authorizationStatus) { _, status in
+                switch status {
+                case .authorizedWhenInUse, .authorizedAlways:
+                    Task { await fetchCurrentLocation() }
+                case .denied, .restricted:
+                    locationDenied = true
+                default:
+                    break
+                }
+            }
             .onChange(of: progressItemId) { _, _ in
                 tearDownActivitiesListener()
                 activitiesWithLocation = []
                 hasFitCameraInitially = false
+                currentLocation = nil
+                locationDenied = false
                 setUpActivitiesListener()
                 listenerInitialized = true
+                Task { await fetchCurrentLocation() }
             }
             .onChange(of: selectedCollectionId) { _, _ in
                 // When the filter changes, refit the camera so newly
@@ -132,6 +156,7 @@ struct MapView: View {
 
     private var mapContent: some View {
         Map(position: $cameraPosition) {
+            UserAnnotation()
             ForEach(filteredActivitiesWithLocation) { activity in
                 if let coord = activity.coordinate {
                     Annotation(
@@ -218,6 +243,9 @@ struct MapView: View {
     private var topOverlay: some View {
         VStack(spacing: 6) {
             searchBar
+            if locationDenied {
+                locationWarningBanner
+            }
             if !searchModel.results.isEmpty {
                 searchResultsCard
             } else if filteredActivitiesWithLocation.isEmpty && !isLoading && searchModel.query.isEmpty {
@@ -233,6 +261,19 @@ struct MapView: View {
         }
         .padding(.horizontal)
         .padding(.top, 8)
+    }
+
+    private var locationWarningBanner: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "location.slash.fill")
+                .foregroundStyle(.orange)
+            Text("Location access unavailable — some features may be limited.")
+                .font(.caption)
+                .foregroundStyle(.primary)
+            Spacer()
+        }
+        .padding(10)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10))
     }
 
     private var searchBar: some View {
@@ -415,9 +456,15 @@ struct MapView: View {
         isLoading = true
         activitiesListener = activityService.setActivitiesListener(for: progressItemId) { fetched in
             self.activitiesWithLocation = fetched.filter { $0.hasLocation }
-            if !self.hasFitCameraInitially && !self.filteredActivitiesWithLocation.isEmpty {
-                self.fitCameraToActivities()
-                self.hasFitCameraInitially = true
+            if !self.hasFitCameraInitially {
+                if let loc = self.currentLocation {
+                    // Location already obtained — prefer it for the initial view.
+                    self.setCameraToLocation(loc)
+                    self.hasFitCameraInitially = true
+                } else if !self.filteredActivitiesWithLocation.isEmpty {
+                    self.fitCameraToActivities()
+                    self.hasFitCameraInitially = true
+                }
             }
             self.isLoading = false
             self.errorMessage = nil
@@ -430,30 +477,65 @@ struct MapView: View {
         listenerInitialized = false
     }
 
-    /// Set the camera region to a bounding box that includes every currently
-    /// visible pin (respecting the active collection filter), padded
-    /// slightly so pins aren't on the very edge.
+    // MARK: - Location
+
+    private func fetchCurrentLocation() async {
+        switch locationService.authorizationStatus {
+        case .notDetermined:
+            locationService.requestLocationPermission()
+        case .denied, .restricted:
+            locationDenied = true
+        case .authorizedWhenInUse, .authorizedAlways:
+            do {
+                let coord = try await locationService.getCurrentLocation()
+                let isFirst = currentLocation == nil
+                currentLocation = coord
+                // Always center on user location the first time we get it,
+                // even if we already fit to pins — location takes priority.
+                if isFirst {
+                    setCameraToLocation(coord)
+                    hasFitCameraInitially = true
+                }
+            } catch {
+                // GPS failure — not a permission issue; don't show the warning.
+                AppLogger.activity.debug("fetchCurrentLocation failed: \(error)")
+            }
+        @unknown default:
+            break
+        }
+    }
+
+    private func setCameraToLocation(_ coord: CLLocationCoordinate2D) {
+        cameraPosition = .region(MKCoordinateRegion(
+            center: coord,
+            span: MKCoordinateSpan(
+                latitudeDelta: minSpanDelta,
+                longitudeDelta: minSpanDelta
+            )
+        ))
+    }
+
+    /// Fits the camera to a bounding box that contains every visible pin,
+    /// clamped between neighbourhood (minSpanDelta) and city (maxSpanDelta).
+    /// Falls back to current location when there are no pins.
     private func fitCameraToActivities() {
         let coords = filteredActivitiesWithLocation.compactMap { $0.coordinate }
-        guard !coords.isEmpty else { return }
+        guard !coords.isEmpty else {
+            if let loc = currentLocation { setCameraToLocation(loc) }
+            return
+        }
 
         let lats = coords.map { $0.latitude }
         let lons = coords.map { $0.longitude }
-        let minLat = lats.min() ?? 0
-        let maxLat = lats.max() ?? 0
-        let minLon = lons.min() ?? 0
-        let maxLon = lons.max() ?? 0
-
         let center = CLLocationCoordinate2D(
-            latitude: (minLat + maxLat) / 2,
-            longitude: (minLon + maxLon) / 2
+            latitude: ((lats.min()! + lats.max()!) / 2),
+            longitude: ((lons.min()! + lons.max()!) / 2)
         )
-        let span = MKCoordinateSpan(
-            // Multiply by 1.5 for padding; floor at 0.005 so a single pin
-            // doesn't show a zoomed-to-rooftop view.
-            latitudeDelta: max(0.005, (maxLat - minLat) * 1.5),
-            longitudeDelta: max(0.005, (maxLon - minLon) * 1.5)
-        )
-        cameraPosition = .region(MKCoordinateRegion(center: center, span: span))
+        let latDelta = max(minSpanDelta, min(maxSpanDelta, (lats.max()! - lats.min()!) * 1.5))
+        let lonDelta = max(minSpanDelta, min(maxSpanDelta, (lons.max()! - lons.min()!) * 1.5))
+        cameraPosition = .region(MKCoordinateRegion(
+            center: center,
+            span: MKCoordinateSpan(latitudeDelta: latDelta, longitudeDelta: lonDelta)
+        ))
     }
 }
