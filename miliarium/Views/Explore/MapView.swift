@@ -63,6 +63,10 @@ struct MapView: View {
     @State private var showCurrentLocationCreate = false
     @State private var pendingPreviewCreate = false
     @State private var editingActivity: Activity?
+    /// Captures the activity targeted by the pin menu's Delete option until
+    /// the user confirms or cancels the confirmation dialog. `nil` = no
+    /// dialog is open.
+    @State private var pendingDeleteActivity: Activity?
 
     var body: some View {
         NavigationStack {
@@ -109,6 +113,22 @@ struct MapView: View {
                 ) {
                     editingActivity = nil
                 }
+            }
+            .confirmationDialog(
+                "Delete this activity?",
+                isPresented: Binding(
+                    get: { pendingDeleteActivity != nil },
+                    set: { if !$0 { pendingDeleteActivity = nil } }
+                ),
+                titleVisibility: .visible,
+                presenting: pendingDeleteActivity
+            ) { activity in
+                Button("Delete", role: .destructive) {
+                    Task { await deleteActivity(activity) }
+                }
+                Button("Cancel", role: .cancel) {}
+            } message: { activity in
+                Text("“\(activity.title)” will be permanently removed from this progress and any collections it belongs to. This cannot be undone.")
             }
             .onAppear {
                 if !listenerInitialized {
@@ -223,6 +243,11 @@ struct MapView: View {
                 editingActivity = activity
             } label: {
                 Label("Edit details", systemImage: "square.and.pencil")
+            }
+            Button(role: .destructive) {
+                pendingDeleteActivity = activity
+            } label: {
+                Label("Delete", systemImage: "trash")
             }
         } label: {
             ZStack {
@@ -446,6 +471,19 @@ struct MapView: View {
         } catch {
             await MainActor.run {
                 errorMessage = "Couldn't update collection: \(error.localizedDescription)"
+            }
+        }
+    }
+
+    /// Permanently deletes the activity (and removes it from every collection
+    /// it belonged to, in one atomic batch). The activities listener refreshes
+    /// the pins automatically.
+    private func deleteActivity(_ activity: Activity) async {
+        do {
+            try await activityService.deleteActivity(activity, progressItemId: progressItemId)
+        } catch {
+            await MainActor.run {
+                errorMessage = "Failed to delete: \(error.localizedDescription)"
             }
         }
     }
