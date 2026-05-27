@@ -173,7 +173,7 @@ struct CreateActivitySheet: View {
 
     private var timeSection: some View {
         Section("Time") {
-            Toggle("Has time", isOn: $hasTime)
+            Toggle("Add a date and time", isOn: $hasTime)
             if hasTime {
                 DatePicker(
                     "When",
@@ -186,7 +186,7 @@ struct CreateActivitySheet: View {
 
     private var locationSection: some View {
         Section("Location") {
-            Toggle("Has location", isOn: $hasLocation)
+            Toggle("Add a location", isOn: $hasLocation)
             if hasLocation {
                 LocationSearchField(
                     resolvedLocationName: $resolvedLocationName,
@@ -535,7 +535,7 @@ struct EditActivitySheet: View {
 
     private var timeSection: some View {
         Section("Time") {
-            Toggle("Has time", isOn: $hasTime)
+            Toggle("Add a date and time", isOn: $hasTime)
             if hasTime {
                 DatePicker(
                     "When",
@@ -548,7 +548,7 @@ struct EditActivitySheet: View {
 
     private var locationSection: some View {
         Section("Location") {
-            Toggle("Has location", isOn: $hasLocation)
+            Toggle("Add a location", isOn: $hasLocation)
             if hasLocation {
                 LocationSearchField(
                     resolvedLocationName: $resolvedLocationName,

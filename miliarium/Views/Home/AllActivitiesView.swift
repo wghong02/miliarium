@@ -25,6 +25,7 @@ struct AllActivitiesView: View {
     @State private var editingActivity: Activity?
     @State private var showCreateActivity = false
     @State private var isLoading = true
+    @State private var errorMessage: String?
 
     /// Newest first.
     private var sortedActivities: [Activity] {
@@ -90,6 +91,13 @@ struct AllActivitiesView: View {
                     ActivityMemberRow(activity: activity)
                         .contentShape(Rectangle())
                         .onTapGesture { editingActivity = activity }
+                        .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                            Button(role: .destructive) {
+                                Task { await deleteActivity(activity) }
+                            } label: {
+                                Text("Delete")
+                            }
+                        }
                 }
             } header: {
                 HStack {
@@ -101,8 +109,16 @@ struct AllActivitiesView: View {
                         .foregroundStyle(.secondary)
                 }
             } footer: {
-                Text("Every activity in this progress. Tap a row to edit it.")
+                Text("Tap a row to edit. Swipe left to delete — this removes the activity entirely.")
                     .font(.caption2)
+            }
+
+            if let errorMessage {
+                Section {
+                    Text(errorMessage)
+                        .font(.caption)
+                        .foregroundStyle(.red)
+                }
             }
         }
         .listStyle(.insetGrouped)
@@ -121,5 +137,20 @@ struct AllActivitiesView: View {
     private func tearDownListener() {
         activitiesListener?.remove()
         activitiesListener = nil
+    }
+
+    // MARK: - Actions
+
+    /// Permanently deletes the activity from the progress (and from every
+    /// collection it belonged to, in one atomic batch). The activities
+    /// listener refreshes the list automatically.
+    private func deleteActivity(_ activity: Activity) async {
+        do {
+            try await activityService.deleteActivity(activity, progressItemId: progressItemId)
+        } catch {
+            await MainActor.run {
+                errorMessage = "Failed to delete: \(error.localizedDescription)"
+            }
+        }
     }
 }

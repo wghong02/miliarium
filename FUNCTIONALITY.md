@@ -249,11 +249,13 @@ Test scope tags:
 - The sheet lists every activity for the active progress (regardless of collection membership), newest first.
 - A toolbar "+" opens Create Activity.
 - Tapping a row opens the Edit Activity sheet.
+- Swipe left on a row reveals a red **Delete** action that permanently removes the activity (it is also dropped from every collection it belonged to in the same atomic write).
 - The list includes activities that belong to zero collections.
 
 **Expectations**
 - No "Edit details" row appears at the top — "All" is not a real collection.
-- No swipe-to-remove action on any row — every activity is implicitly in "All".
+- Swipe-to-delete is destructive: the activity is gone after a confirmed full swipe (no extra confirmation dialog, matching the Calendar tab's daily list).
+- A failure to delete surfaces an inline red error message at the bottom of the list; the row remains visible.
 - Adding or deleting an activity elsewhere is reflected in this list in real time.
 - Empty state: `ContentUnavailableView` with title "No activities yet" and "Tap + to add your first activity."
 
@@ -276,7 +278,7 @@ Test scope tags:
 ### 5.2 Time dimension 🖼
 
 **Behavior**
-- Toggling "Has time" reveals a DatePicker (date + time).
+- Toggling "Add a date and time" reveals a DatePicker (date + time).
 - Toggling off hides the DatePicker — saved activity has no timestamp.
 
 **Expectations**
@@ -286,7 +288,7 @@ Test scope tags:
 ### 5.3 Location dimension 🖼
 
 **Behavior**
-- Toggling "Has location" reveals: Apple Maps search, suggestion rows, "Use current location" button, custom name field, and a selected-location row.
+- Toggling "Add a location" reveals: Apple Maps search, suggestion rows, "Use current location" button, custom name field, and a selected-location row.
 - The custom name field placeholder is **"Enter custom name"** — it is never autofilled.
 - The selected-location row shows the resolved Apple Maps name (e.g. "Eiffel Tower"), not coordinates.
 - An "X" button on the selected-location row clears the location entirely.
@@ -455,7 +457,7 @@ Test scope tags:
 
 **Behavior**
 - The toolbar "+" opens the standard Create Activity sheet with no pre-filled location.
-- The user can manually toggle "Has location" and pick a location from search or use the "Current location" button.
+- The user can manually toggle "Add a location" and pick a location from search or use the "Current location" button.
 
 **Expectations**
 - The Create Activity sheet opens with the location dimension toggled **off** (not pre-filled).
