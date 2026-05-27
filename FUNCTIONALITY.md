@@ -429,17 +429,20 @@ Test scope tags:
 **Edge cases**
 - Collection filter changes re-fit the camera to the newly visible subset of pins.
 
-### 7.3 Pin menu (collection assignment) 🖼
+### 7.3 Pin menu (collection assignment + delete) 🖼
 
 **Behavior**
-- Tapping a pin opens a menu listing every collection for the current progress + an "Edit details" item.
+- Tapping a pin opens a menu listing every collection for the current progress, an "Edit details" item, and a destructive "Delete" item.
 - Each collection row has a checkmark when the activity already belongs to it.
+- Selecting "Delete" presents a confirmation dialog ("Delete this activity?") with a destructive Delete button and a Cancel button; the activity title is quoted in the message.
 
 **Expectations**
 - Tapping a checked collection removes the activity from that collection.
 - Tapping an unchecked collection adds it.
 - "Edit details" opens the Edit Activity sheet for that pin.
-- The menu shows "No collections yet" when the progress has zero collections.
+- "Delete" → confirmation dialog → confirming permanently removes the activity from the progress (and from every collection it belonged to in the same atomic write). Cancelling leaves the activity untouched.
+- A failed delete surfaces an error message in the map's top overlay (not a silent no-op).
+- The menu shows "No collections yet" when the progress has zero collections; the "Edit details" and "Delete" items remain available in that case.
 
 ### 7.4 Search bar 🖼
 

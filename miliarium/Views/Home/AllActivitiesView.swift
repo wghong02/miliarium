@@ -109,7 +109,7 @@ struct AllActivitiesView: View {
                         .foregroundStyle(.secondary)
                 }
             } footer: {
-                Text("Tap a row to edit. Swipe left to delete — this removes the activity entirely.")
+                Text("Tap a row to edit. Swipe left to delete.")
                     .font(.caption2)
             }
 
