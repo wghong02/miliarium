@@ -260,7 +260,9 @@ struct CalendarView: View {
                 Spacer()
             }
             .padding(.vertical, 6)
-            .padding(.horizontal, 12)
+            // Match the home tab's `.padding(.horizontal)` (16pt) so the
+            // date title aligns with the rest of the app.
+            .padding(.horizontal)
             .background(Color(.systemGray6))
 
             if dateActivities.isEmpty {
@@ -413,6 +415,9 @@ private struct CalendarActivityRow: View {
             }
         }
         .padding(.vertical, 6)
-        .padding(.horizontal, 10)
+        // Match the home tab's `.padding(.horizontal)` (16pt). The List
+        // wrapping these rows zeroes its own `listRowInsets`, so this is
+        // the only horizontal padding the row gets.
+        .padding(.horizontal)
     }
 }
