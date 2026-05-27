@@ -95,9 +95,9 @@ struct CreateActivitySheet: View {
     }
 
     private var canCreate: Bool {
-        !trimmedTitle.isEmpty
-            && !selectedCollectionIds.isEmpty
-            && !isCreating
+        // Collections are optional now — activities with zero collections
+        // still appear in the virtual "All activities" view.
+        !trimmedTitle.isEmpty && !isCreating
     }
 
     var body: some View {
@@ -283,15 +283,6 @@ struct CreateActivitySheet: View {
                                 )
                             Text(collection.name)
                                 .foregroundStyle(.primary)
-                            if collection.isDefault {
-                                Text("default")
-                                    .font(.caption2)
-                                    .foregroundStyle(.secondary)
-                                    .padding(.horizontal, 4)
-                                    .padding(.vertical, 1)
-                                    .background(Color(.systemGray5))
-                                    .cornerRadius(3)
-                            }
                             Spacer()
                             if collection.isFavorite {
                                 Image(systemName: "star.fill")
@@ -315,11 +306,9 @@ struct CreateActivitySheet: View {
                 }
             }
         } footer: {
-            if selectedCollectionIds.isEmpty {
-                Text("Select at least one collection.")
-                    .font(.caption2)
-                    .foregroundStyle(.red)
-            }
+            Text("Optional. Activities without a collection still appear in “All activities”.")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
         }
     }
 
@@ -338,9 +327,6 @@ struct CreateActivitySheet: View {
             let fetched = try await activityCollectionService.fetchCollections(for: progressItemId)
             await MainActor.run {
                 self.availableCollections = fetched
-                if let defaultCollection = fetched.first(where: { $0.isDefault }) {
-                    self.selectedCollectionIds.insert(defaultCollection.id)
-                }
                 self.isLoadingCollections = false
             }
         } catch {
@@ -451,9 +437,9 @@ struct EditActivitySheet: View {
     }
 
     private var canUpdate: Bool {
-        !trimmedTitle.isEmpty
-            && !selectedCollectionIds.isEmpty
-            && !isUpdating
+        // Collections are optional — activities with zero collections still
+        // appear in the virtual "All activities" view.
+        !trimmedTitle.isEmpty && !isUpdating
     }
 
     var body: some View {
@@ -659,15 +645,6 @@ struct EditActivitySheet: View {
                                 )
                             Text(collection.name)
                                 .foregroundStyle(.primary)
-                            if collection.isDefault {
-                                Text("default")
-                                    .font(.caption2)
-                                    .foregroundStyle(.secondary)
-                                    .padding(.horizontal, 4)
-                                    .padding(.vertical, 1)
-                                    .background(Color(.systemGray5))
-                                    .cornerRadius(3)
-                            }
                             Spacer()
                             if collection.isFavorite {
                                 Image(systemName: "star.fill")
@@ -691,11 +668,9 @@ struct EditActivitySheet: View {
                 }
             }
         } footer: {
-            if selectedCollectionIds.isEmpty {
-                Text("Select at least one collection.")
-                    .font(.caption2)
-                    .foregroundStyle(.red)
-            }
+            Text("Optional. Activities without a collection still appear in “All activities”.")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
         }
     }
 
@@ -717,12 +692,12 @@ struct EditActivitySheet: View {
         hasLocation = activity.hasLocation
         latitude = activity.latitude
         longitude = activity.longitude
-        // The persisted `locationName` may be either a user-typed custom
-        // name or the Apple Maps name auto-saved at create time. We can't
-        // tell which, so treat it as the custom name on edit; if the user
-        // re-searches, `resolvedLocationName` populates and takes over.
-        customLocationName = activity.locationName ?? ""
-        resolvedLocationName = nil
+        // Show the persisted name in the location display row via
+        // resolvedLocationName. customLocationName starts empty so the user
+        // can type an override; on save, a non-empty custom name wins over
+        // the resolved name (same priority as create).
+        resolvedLocationName = activity.locationName
+        customLocationName = ""
         trackCompletion = activity.isCompleted != nil
         isCompleted = activity.isCompleted ?? false
         selectedCollectionIds = Set(activity.collectionIds)

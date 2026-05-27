@@ -88,7 +88,7 @@ Test scope tags:
 **Expectations**
 - The Create button is disabled when the title is empty or whitespace-only.
 - After successful creation, the new progress is selected and visible on the Home tab.
-- A "default collection" exists for the new progress (visible in the Collections section).
+- The new progress starts with **no collections** — only the synthetic "All activities" row is shown until the user creates one.
 
 ### 3.2 Switch between progresses 🖼
 
@@ -117,7 +117,23 @@ Test scope tags:
 **Edge cases**
 - Saving an empty summary clears the displayed summary.
 
-### 3.4 Delete progress 🖼
+### 3.4 Upcoming activity 🖼
+
+**Behavior**
+- The Home tab shows an "Upcoming activity" section below the progress title/summary.
+- Lists every activity with a `timestamp` strictly in the future, sorted soonest-first, capped at 20 rows.
+- The list is scrollable when it overflows its fixed maximum height.
+- Each row shows the activity title, the formatted date/time, an optional location pin, and a notes preview line.
+
+**Expectations**
+- Activities without a `timestamp` (no time dimension) do NOT appear.
+- Activities whose `timestamp` is in the past do NOT appear (they're history).
+- Tapping a row opens the Edit Activity sheet for that activity.
+- The list updates in real time as activities are added, edited, or have their time toggled.
+- Empty state: "No upcoming activities".
+- Section uses the same visual pattern as Sharing: leading divider, header with clock icon, no card background.
+
+### 3.5 Delete progress 🖼
 
 **Behavior**
 - The owner taps "Delete Progress" → a system confirmation dialog (action sheet) appears with the title "Delete Progress?", a message explaining the action is irreversible, a destructive "Delete" button, and a "Cancel" button.
@@ -139,17 +155,19 @@ Test scope tags:
 
 **Behavior**
 - The Home tab shows a "Collections" section with a list of collections for the active progress.
+- A **synthetic "All activities"** row is pinned to the top of the list when the filter is set to "All". It is NOT a real collection — it has no star, no swipe-delete, and no edit-details affordance. Tapping it opens §4.8.
 - A filter row offers "All" vs "Favourites".
-- Each row has a star icon on the left: filled yellow star for favourites, unfilled star for non-favourites.
+- Each real collection row has a star icon on the left: filled yellow star for favourites, unfilled star for non-favourites.
 - Tapping the star icon toggles the collection's favourite status directly from the list (no need to open the edit sheet).
 
 **Expectations**
-- Each row shows: star icon (filled if favourite, unfilled otherwise), collection name, optional "default" badge, and a stats line.
+- The "All activities" row is shown when filter = "All"; hidden when filter = "Favourites".
+- Each collection row shows: star icon (filled if favourite, unfilled otherwise), collection name, and a stats line. There is no special "default" badge — every collection is equal.
 - Tapping the star immediately persists the change; the icon updates when the listener reflects the write.
 - The star is disabled while a toggle is in flight to prevent double-taps.
-- Favourite collections sort first; the default collection sorts next; others by creation order.
+- Favourite collections sort first; others by creation order.
 - Selecting "Favourites" hides non-favourite collections.
-- Empty state: "No collections yet · Tap + to create one".
+- Empty collections state (still shows the "All activities" row): "No collections yet · Tap + to create one".
 
 ### 4.2 Create a collection 🖼
 
@@ -161,46 +179,83 @@ Test scope tags:
 - The Create button is disabled when the name is empty or whitespace-only.
 - After save, the new collection appears in the list, with a filled star if marked as favourite.
 
-### 4.3 Edit a collection 🖼
+### 4.3 Collection detail sheet 🖼
 
 **Behavior**
-- Tapping a collection row (anywhere except the star) opens an edit sheet with name, notes, favourite, stats, and (optional) Delete.
+- Tapping a collection row (anywhere except the star) opens a **detail sheet**.
+- The sheet title is the collection name (live — updates if renamed via Edit details).
+- The first row is an **"Edit details"** row (blue slider icon + chevron). If the collection has notes, they are shown as a secondary line beneath "Edit details".
+- Below that is a live **Activities** section listing every activity in the collection (newest first), with a count badge in the section header.
+- The toolbar "+" opens Create Activity.
 
 **Expectations**
-- The Update button is disabled when the name is empty.
-- Toggling favourite in the edit sheet re-sorts the home list (favourites move to the top).
+- Tapping "Edit details" opens the Edit Collection sheet (§4.4).
+- Tapping an activity row opens the Edit Activity sheet for that activity.
+- Swipe left on an activity row → red "Remove" action. The activity is removed from the collection but **not deleted**.
+- After a swipe-remove the row disappears; the activity still exists in other collections.
+- Empty state ("No activities in this collection yet.") is shown when the collection has no members.
+- A loading spinner appears while the activity list is being fetched.
+- The sheet keeps the activity list in sync in real time — adding or removing activities elsewhere is reflected without closing and reopening the sheet.
 
-### 4.4 Refresh stats 🖼
+**Edge cases**
+- Removing the last activity from the collection shows the empty state without dismissing the sheet.
+
+### 4.4 Edit collection metadata 🖼
 
 **Behavior**
-- The edit sheet shows a Stats section: total, completed, with time, with location, first, last, updated time.
+- Opened from the "Edit details" row inside the collection detail sheet (§4.3).
+- Shows: name (required), notes (optional), favourite toggle, a Stats section, an Update button, and a Delete button.
+
+**Expectations**
+- The Update button is disabled when the name is empty or whitespace-only.
+- Tapping Update saves and dismisses the edit sheet; the collection detail sheet reflects the new name/notes immediately (live listener).
+- Toggling favourite re-sorts the home list (favourites move to the top) after the listener update.
+
+### 4.5 Refresh stats 🖼
+
+**Behavior**
+- The Edit Collection sheet (§4.4) shows a Stats section: total, completed, with time, with location, first date, last date, and when the stats were last computed.
 - A "Refresh stats" button recomputes from current activity membership.
 
 **Expectations**
-- Stats do NOT auto-update when activities are added/removed; user must tap "Refresh stats".
+- Stats do NOT auto-update when activities are added/removed; the user must tap "Refresh stats".
 - After tapping Refresh, the stats fields update in place and the "Updated" timestamp reflects "now".
 - A spinner appears while the refresh is in flight; the button is disabled.
 
-### 4.5 Delete a collection 🖼
+### 4.6 Delete a collection 🖼
 
 **Behavior**
-- The edit sheet offers Delete for any non-default collection.
-- Default collection cannot be deleted (the Delete section is hidden).
+- The Edit Collection sheet (§4.4) offers a Delete button for every collection.
 
 **Expectations**
 - Tapping Delete shows a confirmation alert.
-- Confirming dismisses the sheet and removes the collection from the home list.
-- Activities that were in the collection still exist — they're just no longer listed under that collection.
+- Confirming dismisses both the edit sheet and the detail sheet, removing the collection from the home list.
+- Activities that were in the collection still exist — they're just no longer listed under that collection. Activities orphaned by the delete still appear in the "All activities" view (§4.8).
 
-### 4.6 Swipe-to-delete on rows 🖼
+### 4.7 Swipe-to-delete on rows 🖼
 
 **Behavior**
-- Swipe left on a non-default collection row → red Delete action.
-- Default collection has no swipe action.
+- Swipe left on any collection row in the home list → red Delete action.
+- The "All activities" row has no swipe action (it isn't a collection).
 
 **Expectations**
 - Swipe action triggers deletion (no extra confirmation needed for swipe).
-- Swiping the default collection row reveals no destructive action.
+- Swiping the synthetic "All activities" row reveals no actions.
+
+### 4.8 All activities view 🖼
+
+**Behavior**
+- The synthetic "All activities" row at the top of the home list opens a sheet titled "All activities".
+- The sheet lists every activity for the active progress (regardless of collection membership), newest first.
+- A toolbar "+" opens Create Activity.
+- Tapping a row opens the Edit Activity sheet.
+- The list includes activities that belong to zero collections.
+
+**Expectations**
+- No "Edit details" row appears at the top — "All" is not a real collection.
+- No swipe-to-remove action on any row — every activity is implicitly in "All".
+- Adding or deleting an activity elsewhere is reflected in this list in real time.
+- Empty state: `ContentUnavailableView` with title "No activities yet" and "Tap + to add your first activity."
 
 ---
 
@@ -213,9 +268,10 @@ Test scope tags:
 - The Create button lives in the top-right of the toolbar; Cancel is top-left.
 
 **Expectations**
-- The Create button is disabled until: title is non-empty AND at least one collection is selected.
+- The Create button is disabled until the title is non-empty (whitespace doesn't count).
+- Collection selection is **optional**. Activities created with zero collections still appear in the "All activities" view (§4.8).
 - Tapping Create shows a spinner in the toolbar in place of the button.
-- On success, the sheet dismisses and the new activity is reflected in collection stats (after refresh).
+- On success, the sheet dismisses and the new activity is reflected in collection stats (after refresh) for any collections it was added to.
 
 ### 5.2 Time dimension 🖼
 
@@ -260,14 +316,14 @@ Test scope tags:
 **Behavior**
 - A "Collections" section lists all collections for the current progress.
 - Each row has a checkmark for selected collections.
-- The default collection is auto-selected when opening Create (not for Edit).
+- No row is pre-selected — the user explicitly picks zero or more collections.
 - The header shows "N selected" when at least one is checked.
-- The footer warns "Select at least one collection." when none are checked.
+- The footer always reads: "Optional. Activities without a collection still appear in 'All activities'."
 
 **Expectations**
 - Tapping a row toggles its membership.
-- Create is disabled when zero collections are selected.
-- On save, the activity is reflected as a member of every selected collection.
+- Selecting zero collections is allowed; the activity becomes "unfiled" and only appears in the "All activities" view (§4.8).
+- On save, the activity is reflected as a member of every selected collection (which may be the empty set).
 
 ### 5.6 Edit activity 🖼
 
@@ -353,14 +409,23 @@ Test scope tags:
 ### 7.2 Camera auto-fit + recenter 🖼
 
 **Behavior**
-- On first data load, the camera region auto-fits to contain all pins (with padding).
-- A floating "scope" button in the bottom-right re-fits the camera to all pins on demand.
-- Subsequent listener updates do NOT automatically re-center.
+- On map appear the app requests location permission (if not yet determined) and fetches the current device location.
+- Initial camera priority: **1) device location** (city-level zoom, ~15 km span), **2) bounding box of all visible pins** (clamped to 15–50 km span), **3) automatic**.
+- If device location is obtained after the pins have already set the initial view, the camera still re-centers on the device location (location always wins for the first camera placement).
+- A yellow warning banner is shown when location access is denied or restricted.
+- A floating "scope" button in the bottom-right re-fits the camera to all visible pins on demand.
+- Subsequent listener updates (new/removed pins) do NOT automatically re-center.
 
 **Expectations**
-- Auto-fit only fires once per appearance — adding new activities doesn't jolt the camera.
-- Tapping the recenter button re-centers, regardless of where the user panned to.
+- The camera centers on the device's current location (with ~15 km span) whenever location is available.
+- Auto-fit to pins only fires when no device location is available.
+- Adding new activities after initial load doesn't jolt the camera.
+- Tapping the recenter button re-fits to all visible pins.
 - The recenter button is hidden when there are no pins.
+- Location warning banner appears when permission is denied; it does NOT appear for a GPS failure.
+
+**Edge cases**
+- Collection filter changes re-fit the camera to the newly visible subset of pins.
 
 ### 7.3 Pin menu (collection assignment) 🖼
 
@@ -389,11 +454,12 @@ Test scope tags:
 ### 7.5 Add via toolbar `+` 🖼
 
 **Behavior**
-- The toolbar "+" opens Create Activity with the location dimension pre-toggled and the current device location auto-fetched on appear.
+- The toolbar "+" opens the standard Create Activity sheet with no pre-filled location.
+- The user can manually toggle "Has location" and pick a location from search or use the "Current location" button.
 
 **Expectations**
-- On first use the location permission prompt appears.
-- After permission is granted, the selected-location row shows "Current location" and the coords are populated.
+- The Create Activity sheet opens with the location dimension toggled **off** (not pre-filled).
+- Location permission is handled by the map tab on appear (§7.2), not on "+" tap.
 
 ### 7.6 Empty state 🖼
 

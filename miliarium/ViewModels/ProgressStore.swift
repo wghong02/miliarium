@@ -158,7 +158,10 @@ final class ProgressStore {
         }
     }
 
-    /// Creates one progress document + link + default ActivityCollection. Waits at most **3 seconds**; does not retry.
+    /// Creates one progress document + owner link. No default collection is
+    /// seeded — users can either create their own collections or leave
+    /// activities un-collected (they still appear in the virtual "All
+    /// activities" view). Waits at most **3 seconds**; does not retry.
     @discardableResult
     func createProgress(title: String) async -> Bool {
         let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -168,15 +171,6 @@ final class ProgressStore {
         let db = Firestore.firestore()
         let progressRef = db.collection("progressItems").document()
         let linkRef = db.collection("users").document(userId).collection("progressLinks").document(progressRef.documentID)
-        
-        // Seed the default ActivityCollection so new activities always have a home.
-        let defaultCollection = ActivityCollection(
-            name: ActivityCollectionService.defaultCollectionName,
-            isDefault: true
-        )
-        let defaultCollectionRef = progressRef
-            .collection("collections")
-            .document(defaultCollection.id)
 
         let batch = db.batch()
 
@@ -202,9 +196,6 @@ final class ProgressStore {
             forDocument: linkRef
         )
 
-        // Add default ActivityCollection
-        batch.setData(defaultCollection.asFirestoreMap(), forDocument: defaultCollectionRef)
-        
         do {
             try await withThrowingTaskGroup(of: Void.self) { group in
                 group.addTask {

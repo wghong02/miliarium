@@ -16,45 +16,85 @@ struct CollectionsSection: View {
     @State private var showCreateCollection = false
     @State private var showCreateActivity = false
     @State private var showOnlyFavorites = false
+    /// The collection whose detail sheet is currently open. Hoisted here so
+    /// SwiftUI only manages one sheet per view tree branch (sheets inside
+    /// ForEach/List rows are unreliable).
+    @State private var detailCollection: ActivityCollection?
+    /// Drives the "All activities" virtual-view sheet — a synthetic row at
+    /// the top of the list shows every activity for the progress regardless
+    /// of collection membership.
+    @State private var showAllActivities = false
 
     private var visibleCollections: [ActivityCollection] {
         let filtered = showOnlyFavorites
             ? collections.filter { $0.isFavorite }
             : collections
-        // Favorites first, then default, then created order.
+        // Favorites first, then created order.
         return filtered.sorted { lhs, rhs in
             if lhs.isFavorite != rhs.isFavorite { return lhs.isFavorite }
-            if lhs.isDefault != rhs.isDefault { return lhs.isDefault }
             return lhs.createdAt < rhs.createdAt
         }
     }
 
+    /// Approximate min-height for the list so it doesn't snap to zero when
+    /// empty. Counts the synthetic "All activities" row plus either the
+    /// empty-state row or each visible collection row, then caps at the
+    /// outer `maxHeight`.
+    private var rowsHeightEstimate: CGFloat {
+        let allRow: CGFloat = showOnlyFavorites ? 0 : 60
+        let bodyRows: CGFloat = visibleCollections.isEmpty
+            ? 60
+            : CGFloat(visibleCollections.count) * 60
+        return min(allRow + bodyRows, 280)
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
+            Divider()
+                .padding(.top, 4)
+
+            // Header (title + icon + add menu) is intentionally left-aligned
+            // with the parent VStack's leading edge — no horizontal padding —
+            // so the title sits further left than the filter row and list
+            // rows beneath it.
             header
-                .padding()
+                .padding(.vertical)
 
             filterRow
                 .padding(.horizontal)
                 .padding(.vertical, 8)
 
-            if visibleCollections.isEmpty {
-                VStack(spacing: 8) {
-                    Text(showOnlyFavorites ? "No favorite collections" : "No collections yet")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                    Text("Tap + to create one")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+            List {
+                if !showOnlyFavorites {
+                    AllActivitiesRowView(onTap: { showAllActivities = true })
+                        .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
+                        .listRowSeparator(.hidden)
+                        .listRowBackground(Color.clear)
                 }
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
-                .padding(.vertical, 12)
-            } else {
-                List {
+
+                if visibleCollections.isEmpty {
+                    HStack {
+                        Spacer()
+                        VStack(spacing: 4) {
+                            Text(showOnlyFavorites ? "No favorite collections" : "No collections yet")
+                                .font(.subheadline)
+                                .foregroundStyle(.secondary)
+                            Text("Tap + to create one")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                    }
+                    .padding(.vertical, 8)
+                    .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
+                    .listRowSeparator(.hidden)
+                    .listRowBackground(Color.clear)
+                } else {
                     ForEach(visibleCollections) { collection in
                         CollectionRowView(
                             collection: collection,
                             progressItemId: progressItemId,
+                            onTap: { detailCollection = collection },
                             onDelete: {
                                 Task { await deleteCollection(collection) }
                             }
@@ -64,18 +104,31 @@ struct CollectionsSection: View {
                         .listRowBackground(Color.clear)
                     }
                 }
-                .listStyle(.plain)
-                .frame(
-                    minHeight: min(CGFloat(visibleCollections.count) * 60, 240),
-                    maxHeight: 240
-                )
             }
+            .listStyle(.plain)
+            .frame(
+                minHeight: rowsHeightEstimate,
+                maxHeight: 280
+            )
 
             if let error = errorMessage {
                 Text(error)
                     .font(.caption)
                     .foregroundStyle(.red)
                     .padding()
+            }
+        }
+        .sheet(item: $detailCollection) { collection in
+            CollectionDetailView(
+                collection: collection,
+                progressItemId: progressItemId
+            ) {
+                detailCollection = nil
+            }
+        }
+        .sheet(isPresented: $showAllActivities) {
+            AllActivitiesView(progressItemId: progressItemId) {
+                showAllActivities = false
             }
         }
         .sheet(isPresented: $showCreateCollection) {
@@ -110,7 +163,9 @@ struct CollectionsSection: View {
     // MARK: - Header
 
     private var header: some View {
-        HStack {
+        HStack(spacing: 8) {
+            Image(systemName: "tray.full.fill")
+                .foregroundStyle(.blue)
             Text("Collections")
                 .font(.headline)
             Spacer()
@@ -199,9 +254,9 @@ struct CollectionsSection: View {
 struct CollectionRowView: View {
     let collection: ActivityCollection
     let progressItemId: String
+    var onTap: () -> Void = {}
     var onDelete: () -> Void = {}
 
-    @State private var isEditing = false
     @State private var isTogglingFavorite = false
 
     var body: some View {
@@ -218,20 +273,9 @@ struct CollectionRowView: View {
             .disabled(isTogglingFavorite)
 
             VStack(alignment: .leading, spacing: 2) {
-                HStack(spacing: 6) {
-                    Text(collection.name)
-                        .font(.subheadline.weight(.semibold))
-                        .lineLimit(1)
-                    if collection.isDefault {
-                        Text("default")
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 1)
-                            .background(Color(.systemGray5))
-                            .cornerRadius(4)
-                    }
-                }
+                Text(collection.name)
+                    .font(.subheadline.weight(.semibold))
+                    .lineLimit(1)
                 Text(statsLine)
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -249,22 +293,10 @@ struct CollectionRowView: View {
         .background(Color(.systemBackground).opacity(0.5))
         .cornerRadius(6)
         .contentShape(Rectangle())
-        .onTapGesture {
-            isEditing = true
-        }
+        .onTapGesture { onTap() }
         .swipeActions(edge: .trailing, allowsFullSwipe: true) {
-            if !collection.isDefault {
-                Button(role: .destructive, action: onDelete) {
-                    Text("Delete")
-                }
-            }
-        }
-        .sheet(isPresented: $isEditing) {
-            EditCollectionSheet(
-                collection: collection,
-                progressItemId: progressItemId
-            ) {
-                isEditing = false
+            Button(role: .destructive, action: onDelete) {
+                Text("Delete")
             }
         }
     }
@@ -296,6 +328,40 @@ struct CollectionRowView: View {
             pieces = ["Tap to add activities"]
         }
         return pieces.joined(separator: " · ")
+    }
+}
+
+// MARK: - All activities row
+
+/// Synthetic row pinned to the top of the collections list. Tapping it
+/// opens `AllActivitiesView`, which lists every activity for the progress
+/// regardless of collection membership. Not backed by a Firestore doc.
+private struct AllActivitiesRowView: View {
+    let onTap: () -> Void
+
+    var body: some View {
+        HStack(spacing: 10) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("All activities")
+                    .font(.subheadline.weight(.semibold))
+                Text("Every activity in this progress")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+
+            Spacer()
+
+            Image(systemName: "chevron.right")
+                .font(.caption)
+                .foregroundStyle(.tertiary)
+        }
+        .padding(.vertical, 8)
+        .padding(.horizontal, 10)
+        .background(Color(.systemBackground).opacity(0.5))
+        .cornerRadius(6)
+        .contentShape(Rectangle())
+        .onTapGesture { onTap() }
     }
 }
 

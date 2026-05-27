@@ -1,10 +1,11 @@
 import SwiftUI
 import FirebaseFirestore
 
-/// Home-tab section showing the next 5 activities that have a `timestamp` in
-/// the future, sourced from the unified `activities` subcollection. Replaces
-/// the legacy `calendars/{id}/events` reader.
-struct UpcomingEventsView: View {
+/// Home-tab section listing every timed activity scheduled in the future
+/// (capped at 20, scrollable), sorted soonest-first. Visually matches the
+/// "Sharing" section pattern: leading `Divider`, section header with icon,
+/// then content — no card background.
+struct UpcomingActivityView: View {
     let progressItemId: String
 
     @State private var allTimedActivities: [Activity] = []
@@ -14,6 +15,8 @@ struct UpcomingEventsView: View {
     @State private var listenerInitialized = false
     @State private var editingActivity: Activity?
 
+    /// Soonest-first; only activities whose `timestamp` is strictly in the
+    /// future. Capped at 20 — anything past that is in the Calendar tab.
     private var upcoming: [Activity] {
         let now = Date()
         return allTimedActivities
@@ -23,8 +26,13 @@ struct UpcomingEventsView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            HStack {
-                Text("Upcoming Events")
+            Divider()
+                .padding(.top, 4)
+
+            HStack(spacing: 8) {
+                Image(systemName: "clock.fill")
+                    .foregroundStyle(.blue)
+                Text("Upcoming activity")
                     .font(.headline)
                 Spacer()
                 if isLoading {
@@ -34,18 +42,21 @@ struct UpcomingEventsView: View {
             }
 
             if upcoming.isEmpty {
-                Text("No upcoming events")
+                Text("No upcoming activities")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
                     .padding(.vertical, 8)
             } else {
-                VStack(spacing: 8) {
-                    ForEach(upcoming.prefix(5)) { activity in
-                        UpcomingActivityRow(activity: activity) {
-                            editingActivity = activity
+                ScrollView {
+                    VStack(spacing: 6) {
+                        ForEach(upcoming.prefix(20)) { activity in
+                            UpcomingActivityRow(activity: activity) {
+                                editingActivity = activity
+                            }
                         }
                     }
                 }
+                .frame(maxHeight: 240)
             }
 
             if let error = errorMessage {
@@ -54,9 +65,6 @@ struct UpcomingEventsView: View {
                     .foregroundStyle(.red)
             }
         }
-        .padding()
-        .background(Color(.systemGray6))
-        .cornerRadius(8)
         .sheet(item: $editingActivity) { activity in
             EditActivitySheet(
                 activity: activity,
@@ -141,7 +149,8 @@ private struct UpcomingActivityRow: View {
         }
         .padding(.vertical, 6)
         .padding(.horizontal, 10)
-        .background(Color(.systemBackground))
+        // Subtle gray so rows stand out against the now-cardless parent.
+        .background(Color(.systemGray6))
         .cornerRadius(6)
         .contentShape(Rectangle())
         .onTapGesture { onTap() }
@@ -149,5 +158,5 @@ private struct UpcomingActivityRow: View {
 }
 
 #Preview {
-    UpcomingEventsView(progressItemId: "test123")
+    UpcomingActivityView(progressItemId: "test123")
 }

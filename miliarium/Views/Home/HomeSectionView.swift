@@ -178,42 +178,19 @@ struct HomeSectionView: View {
 
                 Spacer()
 
-                UpcomingEventsView(progressItemId: id)
+                UpcomingActivityView(progressItemId: id)
 
+                // Collections spans the full screen width — cancels the
+                // parent ScrollView's `.padding(.horizontal)` so the section
+                // (divider, rows, swipe actions) reaches edge-to-edge. The
+                // section's own internal `header`/`filterRow` padding still
+                // keeps text inset from the edges.
                 CollectionsSection(progressItemId: id)
 
                 if progressStore.isOwner(of: item.id) {
-                    Button {
-                        showSendInvitation = true
-                    } label: {
-                        HStack {
-                            Image(systemName: "person.badge.plus")
-                            Text("Send Invitation")
-                        }
-                        .frame(maxWidth: .infinity)
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .tint(.blue)
+                    sharingSection
 
-                    invitedUsersPanel
-
-                    Button(role: .destructive) {
-                        progressToDelete = item.id
-                        showDeleteConfirmation = true
-                    } label: {
-                        HStack {
-                            if isDeleting {
-                                ProgressView()
-                                    .tint(.red)
-                            } else {
-                                Image(systemName: "trash.fill")
-                            }
-                            Text("Delete Progress")
-                        }
-                        .frame(maxWidth: .infinity)
-                    }
-                    .buttonStyle(.bordered)
-                    .disabled(isDeleting)
+                    deleteProgressSection(item: item)
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -232,6 +209,67 @@ struct HomeSectionView: View {
            let item = progressStore.progresses.first(where: { $0.id == id }),
            progressStore.isOwner(of: id) {
             InvitedUsersPanelView(progressItemId: id, progressItemTitle: item.title)
+        }
+    }
+
+    /// Owner-only "Sharing" group: section header + Send Invitation button +
+    /// invited users panel. The leading `Divider` + section title separate
+    /// this block from the Collections section above.
+    private var sharingSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Divider()
+                .padding(.top, 4)
+
+            HStack(spacing: 8) {
+                Image(systemName: "person.2.fill")
+                    .foregroundStyle(.blue)
+                Text("Sharing")
+                    .font(.headline)
+                Spacer()
+            }
+
+            Button {
+                showSendInvitation = true
+            } label: {
+                HStack {
+                    Image(systemName: "person.badge.plus")
+                    Text("Send Invitation")
+                }
+                .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.borderedProminent)
+            .tint(.blue)
+
+            invitedUsersPanel
+        }
+    }
+
+    /// Owner-only Delete Progress button, separated from the Sharing block
+    /// above by just a divider (no header — the trash icon + red tint say
+    /// enough on their own).
+    @ViewBuilder
+    private func deleteProgressSection(item: ProgressItem) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Divider()
+                .padding(.top, 4)
+
+            Button(role: .destructive) {
+                progressToDelete = item.id
+                showDeleteConfirmation = true
+            } label: {
+                HStack {
+                    if isDeleting {
+                        ProgressView()
+                            .tint(.red)
+                    } else {
+                        Image(systemName: "trash.fill")
+                    }
+                    Text("Delete Progress")
+                }
+                .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.bordered)
+            .disabled(isDeleting)
         }
     }
 
