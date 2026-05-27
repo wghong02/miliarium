@@ -50,8 +50,15 @@ struct CollectionsSection: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
+            Divider()
+                .padding(.top, 4)
+
+            // Header (title + icon + add menu) is intentionally left-aligned
+            // with the parent VStack's leading edge — no horizontal padding —
+            // so the title sits further left than the filter row and list
+            // rows beneath it.
             header
-                .padding()
+                .padding(.vertical)
 
             filterRow
                 .padding(.horizontal)
@@ -156,7 +163,9 @@ struct CollectionsSection: View {
     // MARK: - Header
 
     private var header: some View {
-        HStack {
+        HStack(spacing: 8) {
+            Image(systemName: "tray.full.fill")
+                .foregroundStyle(.blue)
             Text("Collections")
                 .font(.headline)
             Spacer()
@@ -332,11 +341,6 @@ private struct AllActivitiesRowView: View {
 
     var body: some View {
         HStack(spacing: 10) {
-            Image(systemName: "tray.full.fill")
-                .font(.subheadline.weight(.semibold))
-                .foregroundStyle(Color.blue)
-                .frame(width: 20)
-
             VStack(alignment: .leading, spacing: 2) {
                 Text("All activities")
                     .font(.subheadline.weight(.semibold))

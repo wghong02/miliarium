@@ -117,7 +117,23 @@ Test scope tags:
 **Edge cases**
 - Saving an empty summary clears the displayed summary.
 
-### 3.4 Delete progress 🖼
+### 3.4 Upcoming activity 🖼
+
+**Behavior**
+- The Home tab shows an "Upcoming activity" section below the progress title/summary.
+- Lists every activity with a `timestamp` strictly in the future, sorted soonest-first, capped at 20 rows.
+- The list is scrollable when it overflows its fixed maximum height.
+- Each row shows the activity title, the formatted date/time, an optional location pin, and a notes preview line.
+
+**Expectations**
+- Activities without a `timestamp` (no time dimension) do NOT appear.
+- Activities whose `timestamp` is in the past do NOT appear (they're history).
+- Tapping a row opens the Edit Activity sheet for that activity.
+- The list updates in real time as activities are added, edited, or have their time toggled.
+- Empty state: "No upcoming activities".
+- Section uses the same visual pattern as Sharing: leading divider, header with clock icon, no card background.
+
+### 3.5 Delete progress 🖼
 
 **Behavior**
 - The owner taps "Delete Progress" → a system confirmation dialog (action sheet) appears with the title "Delete Progress?", a message explaining the action is irreversible, a destructive "Delete" button, and a "Cancel" button.
@@ -188,7 +204,7 @@ Test scope tags:
 
 **Behavior**
 - Opened from the "Edit details" row inside the collection detail sheet (§4.3).
-- Shows: name (required), notes (optional), favourite toggle, a Stats section, an Update button, and a Delete button (hidden for the default collection).
+- Shows: name (required), notes (optional), favourite toggle, a Stats section, an Update button, and a Delete button.
 
 **Expectations**
 - The Update button is disabled when the name is empty or whitespace-only.
