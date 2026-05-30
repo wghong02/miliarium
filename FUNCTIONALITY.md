@@ -412,22 +412,28 @@ Test scope tags:
 
 **Behavior**
 - On map appear the app requests location permission (if not yet determined) and fetches the current device location.
-- Initial camera priority: **1) device location** (city-level zoom, ~15 km span), **2) bounding box of all visible pins** (clamped to 15–50 km span), **3) automatic**.
+- Initial camera priority: **1) device location** (city-level zoom, ~15 km span), **2) the next upcoming activity that has both a time AND a location** (city-level zoom on its pin), **3) the most recently added activity that has a location** (city-level zoom on its pin), **4) automatic** (no pins exist at all).
+- "Next upcoming" means soonest by timestamp, restricted to the active collection filter, and only considers activities whose timestamp is in the future.
+- "Most recently added" means the activity with the greatest `createdAt`, restricted to the active collection filter and to activities that have a location.
 - If device location is obtained after the pins have already set the initial view, the camera still re-centers on the device location (location always wins for the first camera placement).
 - A yellow warning banner is shown when location access is denied or restricted.
-- A floating "scope" button in the bottom-right re-fits the camera to all visible pins on demand.
+- A floating "scope" button in the bottom-right fits the camera to the bounding box of all visible pins on demand (clamped to 15–50 km span). This is the only path that uses the "fit-all" behavior — the initial-camera priority does not.
 - Subsequent listener updates (new/removed pins) do NOT automatically re-center.
 
 **Expectations**
 - The camera centers on the device's current location (with ~15 km span) whenever location is available.
-- Auto-fit to pins only fires when no device location is available.
+- When location is unavailable but an upcoming-with-location activity exists, the camera centers on that activity's pin.
+- When location is unavailable and no upcoming-with-location activity exists, the camera centers on the most recently added activity that has a location.
+- The initial camera is never the "fit-all-pins" bounding box — only the explicit recenter button uses that.
 - Adding new activities after initial load doesn't jolt the camera.
 - Tapping the recenter button re-fits to all visible pins.
 - The recenter button is hidden when there are no pins.
 - Location warning banner appears when permission is denied; it does NOT appear for a GPS failure.
 
 **Edge cases**
-- Collection filter changes re-fit the camera to the newly visible subset of pins.
+- Collection filter changes re-fit the camera to the newly visible subset of pins (this path still uses fit-all, since the user explicitly changed what's visible).
+- An upcoming activity whose timestamp passes between listener updates is not "demoted" mid-session — the camera doesn't move; the priority only governs the *initial* camera placement.
+- The fallback chain respects the active collection filter at every step: only pins in the currently-selected collection contribute to "next upcoming" and "most recently added".
 
 ### 7.3 Pin menu (collection assignment + delete) 🖼
 

@@ -52,6 +52,34 @@ struct MapView: View {
         return activitiesWithLocation.filter { $0.collectionIds.contains(selectedCollectionId) }
     }
 
+    /// Coordinate of the next upcoming activity — one with a timestamp in
+    /// the future AND a location — within the current collection filter.
+    /// Used as the first camera fallback when no device location is
+    /// available, so the map opens on what's next on the user's schedule.
+    private var nextUpcomingEventCoordinate: CLLocationCoordinate2D? {
+        let now = Date()
+        let nextEvent = filteredActivitiesWithLocation
+            .filter { activity in
+                guard let ts = activity.timestamp else { return false }
+                return ts > now
+            }
+            .min { ($0.timestamp ?? .distantPast) < ($1.timestamp ?? .distantPast) }
+        guard let coord = nextEvent?.coordinate else { return nil }
+        return CLLocationCoordinate2D(latitude: coord.latitude, longitude: coord.longitude)
+    }
+
+    /// Coordinate of the most recently added (by `createdAt`) activity with
+    /// a location, within the current collection filter. Used as the second
+    /// camera fallback when neither GPS nor an upcoming-with-location
+    /// activity is available — the activity the user just added is almost
+    /// certainly where they want the map to open.
+    private var lastAddedActivityCoordinate: CLLocationCoordinate2D? {
+        let lastAdded = filteredActivitiesWithLocation
+            .max { $0.createdAt < $1.createdAt }
+        guard let coord = lastAdded?.coordinate else { return nil }
+        return CLLocationCoordinate2D(latitude: coord.latitude, longitude: coord.longitude)
+    }
+
     // Search
     @State private var searchModel = LocationSearchModel()
     @State private var isResolvingSearch = false
@@ -496,13 +524,22 @@ struct MapView: View {
             self.activitiesWithLocation = fetched.filter { $0.hasLocation }
             if !self.hasFitCameraInitially {
                 if let loc = self.currentLocation {
-                    // Location already obtained — prefer it for the initial view.
+                    // 1) GPS wins — start on the user's actual location.
                     self.setCameraToLocation(loc)
                     self.hasFitCameraInitially = true
-                } else if !self.filteredActivitiesWithLocation.isEmpty {
-                    self.fitCameraToActivities()
+                } else if let nextCoord = self.nextUpcomingEventCoordinate {
+                    // 2) No GPS — show what's next on the schedule.
+                    self.setCameraToLocation(nextCoord)
+                    self.hasFitCameraInitially = true
+                } else if let lastCoord = self.lastAddedActivityCoordinate {
+                    // 3) No GPS and no upcoming-with-location — fall back
+                    // to the activity the user most recently added, which
+                    // is almost certainly where they want the map to open.
+                    self.setCameraToLocation(lastCoord)
                     self.hasFitCameraInitially = true
                 }
+                // 4) No pins at all — leave camera at `.automatic` and
+                // let the empty-state overlay guide the user.
             }
             self.isLoading = false
             self.errorMessage = nil
