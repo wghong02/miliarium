@@ -28,6 +28,15 @@ struct MiliariumApp: App {
                 .onChange(of: auth.user?.uid) { _, newValue in
                     progressStore.updateUserId(newValue)
                     invitationVM.setUserId(newValue)
+                    if newValue == nil {
+                        widgetSnapshotService.stop()
+                    }
+                }
+                // Re-sync the widget's per-progress listeners whenever the
+                // accessible-progresses set changes. Map to IDs so SwiftUI
+                // can compare arrays for equality.
+                .onChange(of: progressStore.progresses.map(\.id)) { _, _ in
+                    widgetSnapshotService.update(progresses: progressStore.progresses)
                 }
         }
     }
