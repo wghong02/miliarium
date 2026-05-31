@@ -172,12 +172,13 @@ Test scope tags:
 ### 4.2 Create a collection 🖼
 
 **Behavior**
-- The "+" menu on the Collections section offers "Add activity" and "Add collection".
-- "Add collection" opens a sheet with name (required), notes (optional), and a "Mark as favourite" toggle.
+- The "+" button on the Collections section header opens the Create Collection sheet directly (no menu).
+- The sheet has name (required), notes (optional), and a "Mark as favourite" toggle.
 
 **Expectations**
 - The Create button is disabled when the name is empty or whitespace-only.
 - After save, the new collection appears in the list, with a filled star if marked as favourite.
+- Adding an activity is handled by the Home tab's top-right toolbar button (§5.1), not from this section's header.
 
 ### 4.3 Collection detail sheet 🖼
 
@@ -266,8 +267,14 @@ Test scope tags:
 ### 5.1 Create activity 🖼
 
 **Behavior**
-- "Add activity" from the Collections "+" menu opens a sheet with sections: Activity, Time, Location, Completion, Collections.
+- Multiple entry points open the same Create Activity sheet:
+  - **Home tab** top-right `+` toolbar button — no pre-filled fields.
+  - **Calendar tab** top-right `+` toolbar button — pre-fills the timestamp to the selected day at the current time of day.
+  - **Map tab** top-right `+` toolbar button — no pre-filled fields.
+  - **Map tab** purple preview pin (after selecting an Apple Maps search suggestion) — pre-fills latitude/longitude/locationName.
+- The sheet has sections: Activity, Time, Location, Completion, Collections.
 - The Create button lives in the top-right of the toolbar; Cancel is top-left.
+- The Home top-right `+` is only shown when a progress is selected; the Calendar and Map `+` buttons are always shown (those tabs already require a selected progress to be useful).
 
 **Expectations**
 - The Create button is disabled until the title is non-empty (whitespace doesn't count).

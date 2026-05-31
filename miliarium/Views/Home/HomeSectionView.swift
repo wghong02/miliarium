@@ -190,11 +190,6 @@ struct HomeSectionView: View {
                     Text(item.content.body)
                         .font(.body)
                 }
-                if item.content.summary.isEmpty && item.content.body.isEmpty {
-                    Text("No content yet. Edit this progress to add a summary or notes.")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                }
 
                 Spacer()
 

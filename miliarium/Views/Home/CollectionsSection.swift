@@ -14,7 +14,6 @@ struct CollectionsSection: View {
     @State private var listener: ListenerRegistration?
     @State private var listenerInitialized = false
     @State private var showCreateCollection = false
-    @State private var showCreateActivity = false
     @State private var showOnlyFavorites = false
     /// The collection whose detail sheet is currently open. Hoisted here so
     /// SwiftUI only manages one sheet per view tree branch (sheets inside
@@ -136,11 +135,6 @@ struct CollectionsSection: View {
                 Task { await refreshCollections() }
             }
         }
-        .sheet(isPresented: $showCreateActivity) {
-            CreateActivitySheet(progressItemId: progressItemId) {
-                Task { await refreshCollections() }
-            }
-        }
         .onAppear {
             if !listenerInitialized {
                 setUpListener()
@@ -173,22 +167,14 @@ struct CollectionsSection: View {
                 ProgressView()
                     .scaleEffect(0.8)
             } else {
-                Menu {
-                    Button {
-                        showCreateActivity = true
-                    } label: {
-                        Label("Add activity", systemImage: "doc.badge.plus")
-                    }
-                    Button {
-                        showCreateCollection = true
-                    } label: {
-                        Label("Add collection", systemImage: "folder.badge.plus")
-                    }
+                Button {
+                    showCreateCollection = true
                 } label: {
                     Image(systemName: "plus.circle.fill")
                         .font(.headline)
                 }
                 .foregroundStyle(.blue)
+                .accessibilityLabel("Add collection")
             }
         }
     }
