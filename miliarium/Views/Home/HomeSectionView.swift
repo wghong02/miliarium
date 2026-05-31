@@ -10,6 +10,7 @@ struct HomeSectionView: View {
     @State private var showDeleteConfirmation = false
     @State private var showSendInvitation = false
     @State private var showEditSummary = false
+    @State private var showAddActivity = false
     @State private var progressToDelete: String?
     @State private var isDeleting = false
     @State private var deleteErrorMessage: String?
@@ -47,6 +48,17 @@ struct HomeSectionView: View {
                 ToolbarItem(placement: .topBarLeading) {
                     progressMenu
                 }
+                ToolbarItem(placement: .topBarTrailing) {
+                    // Only meaningful when a progress is selected — without
+                    // one we have no `progressItemId` to hand the sheet.
+                    if let id = progressStore.selectedProgressId,
+                       progressStore.progresses.contains(where: { $0.id == id }) {
+                        Button(action: { showAddActivity = true }) {
+                            Image(systemName: "plus.circle.fill")
+                        }
+                        .accessibilityLabel("Add activity")
+                    }
+                }
             }
             .onAppear {
                 currentUserId = authVM.user?.uid
@@ -79,6 +91,14 @@ struct HomeSectionView: View {
                     ) {
                         showEditSummary = false
                     }
+                }
+            }
+            .sheet(isPresented: $showAddActivity) {
+                // Matches the Map tab's "+" button: no pre-filled fields.
+                // The Collections section's own "+" menu is unchanged and
+                // remains an alternate entry point for the same sheet.
+                if let id = progressStore.selectedProgressId {
+                    CreateActivitySheet(progressItemId: id)
                 }
             }
             .confirmationDialog(
