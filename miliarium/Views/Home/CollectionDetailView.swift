@@ -4,7 +4,7 @@ import FirebaseFirestore
 /// Sheet that opens when the user taps a collection row.
 ///
 /// Primary purpose: browse and manage the activities in the collection.
-/// The top section is a single tappable "Edit details" row that opens
+/// The top section is a single tappable "Collection details and statistics" row that opens
 /// `EditCollectionSheet` for metadata changes (name, notes, favourite, stats,
 /// delete). Keeping the two concerns separate means this sheet stays focused
 /// on activities.
@@ -122,7 +122,7 @@ struct CollectionDetailView: View {
                         .foregroundStyle(.blue)
                         .frame(width: 20)
                     VStack(alignment: .leading, spacing: 2) {
-                        Text("Edit details")
+                        Text("Collection details and statistics")
                             .foregroundStyle(.primary)
                         if let notes = currentCollection.notes, !notes.isEmpty {
                             Text(notes)

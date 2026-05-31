@@ -100,7 +100,7 @@ struct CreateCollectionSheet: View {
 /// Editable sheet for an existing collection. Shows metadata (name, notes,
 /// favorite), a "Refresh stats" action, and delete (hidden for default).
 ///
-/// Opened from the "Edit details" row inside `CollectionDetailView`. The
+/// Opened from the "Collection details and statistics" row inside `CollectionDetailView`. The
 /// activity list itself is intentionally NOT shown here — that's the detail
 /// view's job. Keeping the two concerns separate avoids holding two parallel
 /// activity listeners against the same data.
