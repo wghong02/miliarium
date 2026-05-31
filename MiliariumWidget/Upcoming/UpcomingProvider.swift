@@ -23,13 +23,13 @@ struct UpcomingProvider: TimelineProvider {
         if context.isPreview {
             items = Self.placeholderItems
         } else {
-            items = WidgetSnapshotStore.read()?.items ?? []
+            items = WidgetSnapshotStore.readUpcoming()?.items ?? []
         }
         completion(UpcomingEntry(date: Date(), items: items))
     }
 
     func getTimeline(in context: Context, completion: @escaping (Timeline<UpcomingEntry>) -> Void) {
-        let snapshot = WidgetSnapshotStore.read()
+        let snapshot = WidgetSnapshotStore.readUpcoming()
         let allItems = snapshot?.items ?? []
         let now = Date()
 

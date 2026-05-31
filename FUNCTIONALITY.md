@@ -615,3 +615,64 @@ Forms with explicit character limits (all `name`-style limits share one constant
 | Send Invitation | Recipient email | 40 | Truncating | Section header (top right) |
 | Create / Edit Activity | Title | 40 | Truncating | Section header (top right) |
 | Create / Edit Activity | Location custom name | 40 | Truncating | Inline (right of field, same row) |
+
+---
+
+## 12. Home-screen widgets
+
+All widgets ship inside the main app's `.ipa`. The user adds them once from the home-screen widget gallery (long-press → `+` → search "Miliarium"). All snapshot data is written by the main app to a shared App Group container (`group.miliarium.shared`) and read by each widget's `TimelineProvider`. No network calls happen in the widget extension itself.
+
+### 12.1 Upcoming activities (small) 🖼
+
+**Behavior**
+- `systemSmall` widget titled "Upcoming activities" in the gallery.
+- Renders up to **3** activities, soonest first, across **all** the user's progresses (no collection filter).
+- Each row shows the activity title + a relative time string ("in 2 hr").
+- A small `mappin.circle.fill` glyph appears on rows whose activity has a location.
+
+**Expectations**
+- The widget reflects writes to *any* progress's activities within seconds of the main app being foreground when the change happens (the app calls `WidgetCenter.reloadAllTimelines()` after each snapshot rebuild).
+- As each activity's timestamp passes, the row falls off the widget and the remaining ones roll up — this happens via pre-scheduled timeline entries, not refresh budget.
+- Empty state copy: "Nothing scheduled".
+- When the user signs out of the main app, the widget shows the empty state.
+
+**Edge cases**
+- An activity with no `timestamp` does not appear, even if marked completable.
+- An activity whose timestamp is in the past does not appear.
+- A progress the user is no longer linked to (revoked invitation, etc.) is excluded the next time the main app refreshes the snapshot.
+
+### 12.2 Nearby activities (medium) 🖼
+
+**Behavior**
+- `systemMedium` widget titled "Nearby activities" in the gallery.
+- Renders a `MapKit` map of up to **10** activities **that have a location AND are not marked complete**, sorted by distance from the user's last known device location.
+- A floating capsule overlay in the top-left shows "Nearby · N" where N is the visible item count.
+- A blue dot annotation marks the reference point (the user's last known location).
+- Activity pins are red `mappin.circle.fill` markers.
+
+**Expectations**
+- "Not marked complete" means `isCompleted != true` — activities that don't track completion (`isCompleted == nil`) AND activities marked pending (`isCompleted == false`) both appear. Only `isCompleted == true` is excluded.
+- "Nearby" is determined by straight-line distance (`CLLocation.distance(from:)`) from the cached device location.
+- The reference point updates whenever `MapView` performs a successful GPS read.
+- The map auto-fits to a bounding box of all visible pins + the user's location, clamped to a minimum span so a single nearby pin doesn't zoom to street level.
+
+**Three render states**
+1. **No reference point** — the user has never granted location or never opened the Map tab since install. Empty-state copy: "Open the app to share location."
+2. **Reference point but no incomplete-located activities** — the map renders centered on the user with a "Nothing nearby to do" pill overlay.
+3. **Reference point + incomplete-located activities** — the map renders all the pins plus the user dot.
+
+**Edge cases**
+- Marking an activity complete in the app removes it from the widget on the next snapshot rebuild.
+- Removing the location dimension from an activity removes it from the widget.
+- Signing out clears the reference point and resets the widget to state 1.
+
+### 12.3 Snapshot pipeline (shared across widgets) 🧩
+
+**Behavior**
+- The main app's `WidgetSnapshotService` maintains one Firestore listener per accessible progress, mirroring the per-progress structure of `UpcomingActivityView`. On any listener fire (including the initial one) it rebuilds **every** snapshot file in the App Group container, then calls `WidgetCenter.reloadAllTimelines()`.
+- `MapView` additionally calls `widgetSnapshotService.rebuildSnapshots()` after a successful GPS read so the nearby snapshot's reference point updates without waiting for an unrelated Firestore change.
+
+**Expectations**
+- Adding, editing, or deleting an activity in any progress refreshes both widgets within seconds.
+- Signing out triggers a `stop()` that clears every snapshot file and tears down all listeners.
+- A re-sign-in re-establishes listeners on the next `progressStore.progresses` change.

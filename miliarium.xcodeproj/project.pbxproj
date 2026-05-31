@@ -53,6 +53,7 @@
 		11F5EAE52FCAC59A002D524B /* Exceptions for "Shared" folder in "MiliariumWidgetExtension" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
+				NearbySnapshot.swift,
 				UpcomingSnapshot.swift,
 				WidgetSnapshotStore.swift,
 			);

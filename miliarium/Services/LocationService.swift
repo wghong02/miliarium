@@ -12,6 +12,12 @@ class LocationService: NSObject, CLLocationManagerDelegate {
     /// Stored so @Observable can track changes; updated by the delegate.
     private(set) var authorizationStatus: CLAuthorizationStatus = .notDetermined
 
+    /// Most recent successful GPS reading. Persists across `MapView`
+    /// appearances so the widget snapshot service can render a "nearby"
+    /// map even when MapView isn't currently on screen. `nil` until the
+    /// first successful `requestLocation()` callback.
+    private(set) var lastKnownCoordinate: CLLocationCoordinate2D?
+
     var isLocationServiceEnabled: Bool {
         CLLocationManager.locationServicesEnabled()
     }
@@ -55,6 +61,7 @@ class LocationService: NSObject, CLLocationManagerDelegate {
             return
         }
 
+        lastKnownCoordinate = location.coordinate
         locationContinuation?.resume(returning: location.coordinate)
         locationContinuation = nil
     }

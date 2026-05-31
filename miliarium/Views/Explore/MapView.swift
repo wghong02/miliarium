@@ -571,6 +571,10 @@ struct MapView: View {
                     setCameraToLocation(coord)
                     hasFitCameraInitially = true
                 }
+                // Nudge the widget snapshot service: now that a fresh GPS
+                // reading is cached, the nearby-map widget can render even
+                // if no Firestore change happens to retrigger it.
+                widgetSnapshotService.rebuildSnapshots()
             } catch {
                 // GPS failure — not a permission issue; don't show the warning.
                 AppLogger.activity.debug("fetchCurrentLocation failed: \(error)")

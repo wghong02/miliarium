@@ -1,5 +1,5 @@
 //
-//  MiliariumWidget.swift
+//  UpcomingActivitiesWidget.swift
 //  MiliariumWidget
 //
 //  Created by Gilbert Hong on 5/27/26.

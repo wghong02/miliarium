@@ -15,5 +15,6 @@ import SwiftUI
 struct MiliariumWidgetBundle: WidgetBundle {
     var body: some Widget {
         UpcomingActivitiesWidget()
+        NearbyMapWidget()
     }
 }

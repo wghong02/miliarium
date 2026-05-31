@@ -1,22 +1,27 @@
 import Foundation
 import OSLog
+import CoreLocation
 import FirebaseFirestore
 import WidgetKit
 
-/// Owns the "next 3 upcoming activities across all progresses" snapshot
-/// that the home-screen widget reads.
+/// Owns every snapshot file the home-screen widgets read.
 ///
 /// Maintains one `activityService.setActivitiesListener` per accessible
-/// progress (mirrors what `UpcomingActivityView` does for one progress,
-/// but fanned out across all of them). On any listener fire it rebuilds
-/// the snapshot, writes it to the App Group container, and calls
-/// `WidgetCenter.reloadAllTimelines()` so the widget refreshes promptly.
+/// progress (fanned out across every progress the user can see). On any
+/// listener fire it rebuilds **both** snapshot files (`UpcomingSnapshot`
+/// and `NearbySnapshot`), writes them to the App Group container, and
+/// calls `WidgetCenter.reloadAllTimelines()` so every installed widget
+/// picks up the change promptly.
 ///
 /// Lifecycle is driven from `MiliariumApp`:
 /// - `.onChange(of: progressStore.progresses.map(\.id))` → `update(progresses:)`
 /// - sign-out → `stop()`
 ///
-/// **App target only** (the widget extension just reads via `WidgetSnapshotStore`).
+/// `MapView` also calls `rebuildSnapshots()` after a fresh location read,
+/// so the nearby snapshot's reference point updates even when no activity
+/// data has changed.
+///
+/// **App target only** (widgets just read via `WidgetSnapshotStore`).
 @MainActor
 final class WidgetSnapshotService {
     private struct ProgressContext {
@@ -26,6 +31,10 @@ final class WidgetSnapshotService {
     }
 
     private var contexts: [String: ProgressContext] = [:]
+
+    /// Max items shipped to the nearby widget. Keeps the snapshot small
+    /// and avoids overcrowding the medium widget's map.
+    private static let nearbyItemLimit = 10
 
     /// Re-syncs the per-progress listeners to match `progresses`. Adds new
     /// listeners, tears down ones for progresses the user lost access to,
@@ -57,7 +66,7 @@ final class WidgetSnapshotService {
             let listener = activityService.setActivitiesListener(for: progressId) { [weak self] fetched in
                 Task { @MainActor in
                     self?.contexts[progressId]?.activities = fetched
-                    self?.rebuildSnapshot()
+                    self?.rebuildSnapshots()
                 }
             }
             contexts[progress.id] = ProgressContext(
@@ -66,22 +75,39 @@ final class WidgetSnapshotService {
             )
         }
 
-        // If we lost all progresses (or never had any), still write an
-        // empty snapshot so the widget renders the "Nothing scheduled" state.
-        rebuildSnapshot()
+        // If we lost all progresses (or never had any), still write empty
+        // snapshots so the widgets render their empty states.
+        rebuildSnapshots()
     }
 
-    /// Stops all listeners and clears the snapshot. Call on sign-out.
+    /// Stops all listeners and clears every snapshot. Call on sign-out.
     func stop() {
         for (_, ctx) in contexts {
             ctx.listener.remove()
         }
         contexts.removeAll()
-        WidgetSnapshotStore.write(UpcomingSnapshot(writtenAt: Date(), items: []))
+        WidgetSnapshotStore.writeUpcoming(UpcomingSnapshot(writtenAt: Date(), items: []))
+        WidgetSnapshotStore.writeNearby(NearbySnapshot(
+            writtenAt: Date(),
+            centerLatitude: nil,
+            centerLongitude: nil,
+            items: []
+        ))
         WidgetCenter.shared.reloadAllTimelines()
     }
 
-    private func rebuildSnapshot() {
+    /// Forces a snapshot rebuild without changing the progress listener
+    /// set. Call when something the snapshots depend on changes outside
+    /// of Firestore — e.g. the user's device location was just refreshed.
+    func rebuildSnapshots() {
+        rebuildUpcomingSnapshot()
+        rebuildNearbySnapshot()
+        WidgetCenter.shared.reloadAllTimelines()
+    }
+
+    // MARK: - Snapshot builders
+
+    private func rebuildUpcomingSnapshot() {
         let now = Date()
         let items = contexts
             .flatMap { (_, ctx) -> [UpcomingSnapshot.Item] in
@@ -99,9 +125,60 @@ final class WidgetSnapshotService {
             .sorted { $0.timestamp < $1.timestamp }
             .prefix(3)
 
-        let snapshot = UpcomingSnapshot(writtenAt: now, items: Array(items))
-        WidgetSnapshotStore.write(snapshot)
-        WidgetCenter.shared.reloadAllTimelines()
+        WidgetSnapshotStore.writeUpcoming(UpcomingSnapshot(
+            writtenAt: now,
+            items: Array(items)
+        ))
+    }
+
+    private func rebuildNearbySnapshot() {
+        let center = locationService.lastKnownCoordinate
+
+        let allLocatedIncomplete: [(activity: Activity, progressTitle: String)] = contexts
+            .flatMap { (_, ctx) -> [(Activity, String)] in
+                ctx.activities.compactMap { activity in
+                    // Must have a location, and must not be marked done.
+                    // (`isCompleted == nil` and `isCompleted == false` both pass.)
+                    guard activity.hasLocation,
+                          activity.isCompleted != true else { return nil }
+                    return (activity, ctx.title)
+                }
+            }
+
+        let items: [NearbySnapshot.Item]
+        if let center {
+            let centerLoc = CLLocation(latitude: center.latitude, longitude: center.longitude)
+            items = allLocatedIncomplete
+                .map { (activity, progressTitle) -> (Activity, String, Double) in
+                    let aLoc = CLLocation(
+                        latitude: activity.latitude ?? 0,
+                        longitude: activity.longitude ?? 0
+                    )
+                    return (activity, progressTitle, centerLoc.distance(from: aLoc))
+                }
+                .sorted { $0.2 < $1.2 }
+                .prefix(Self.nearbyItemLimit)
+                .map { (activity, progressTitle, _) in
+                    NearbySnapshot.Item(
+                        id: activity.id,
+                        title: activity.title,
+                        progressTitle: progressTitle,
+                        latitude: activity.latitude ?? 0,
+                        longitude: activity.longitude ?? 0,
+                        isCompleted: activity.isCompleted
+                    )
+                }
+        } else {
+            // No reference point — the widget will render its empty state.
+            items = []
+        }
+
+        WidgetSnapshotStore.writeNearby(NearbySnapshot(
+            writtenAt: Date(),
+            centerLatitude: center?.latitude,
+            centerLongitude: center?.longitude,
+            items: items
+        ))
     }
 }
 
