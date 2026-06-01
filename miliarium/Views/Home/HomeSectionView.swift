@@ -70,7 +70,7 @@ struct HomeSectionView: View {
                     if let id = progressStore.selectedProgressId,
                        progressStore.progresses.contains(where: { $0.id == id }) {
                         Button(action: { showAddActivity = true }) {
-                            Image(systemName: "plus.circle.fill")
+                            Image(systemName: "doc.badge.plus")
                         }
                         .accessibilityLabel("Add activity")
                     }

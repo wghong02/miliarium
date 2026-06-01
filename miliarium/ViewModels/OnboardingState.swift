@@ -175,7 +175,7 @@ enum TutorialStep: Int, Sendable {
         switch self {
         case .createProgress: return "square.stack.fill"
         case .createCollection: return "folder.badge.plus"
-        case .createActivity: return "plus.circle.fill"
+        case .createActivity: return "doc.badge.plus"
         case .done: return "checkmark.seal.fill"
         }
     }

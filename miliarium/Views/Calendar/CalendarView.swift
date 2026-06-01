@@ -65,7 +65,7 @@ struct CalendarView: View {
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button(action: { showAddActivity = true }) {
-                        Image(systemName: "plus.circle.fill")
+                        Image(systemName: "doc.badge.plus")
                     }
                 }
             }
