@@ -8,6 +8,7 @@ import CoreLocation
 /// completion) plus belong to one or more `ActivityCollection`s.
 struct CreateActivitySheet: View {
     @Environment(\.dismiss) private var dismiss
+    @Environment(OnboardingState.self) private var onboardingState
 
     let progressItemId: String
     let initialTimestamp: Date?
@@ -34,38 +35,51 @@ struct CreateActivitySheet: View {
         self.initialLocationName = initialLocationName
         self.onActivityCreated = onActivityCreated
 
-        // When opened from the Calendar tab we want the time dimension
-        // already enabled and the date pre-filled to the selected day.
+        // When opened from the Calendar tab we want both date and time
+        // pre-filled to the selected day.
         if let initialTimestamp {
-            _hasTime = State(initialValue: true)
-            _timestamp = State(initialValue: initialTimestamp)
+            _hasStartDate = State(initialValue: true)
+            _startDate = State(initialValue: initialTimestamp)
+            _hasStartTime = State(initialValue: true)
+            _startTime = State(initialValue: initialTimestamp)
         }
-        // When opened from the Map tab we want the location dimension
-        // already enabled. If coordinates are also passed (e.g. the user
-        // tapped a search-result preview pin), we pre-fill them and skip
-        // the auto current-location fetch. The passed-in location name is
-        // treated as the Apple Maps resolved name, not as a user-entered
-        // custom name — so the custom name field stays empty.
-        if initialHasLocation || initialLatitude != nil {
-            _hasLocation = State(initialValue: true)
-            if let initialLatitude { _latitude = State(initialValue: initialLatitude) }
-            if let initialLongitude { _longitude = State(initialValue: initialLongitude) }
-            if let initialLocationName {
-                _resolvedLocationName = State(initialValue: initialLocationName)
-            }
+        // When opened from the Map tab with explicit coordinates (e.g.
+        // the user tapped a search-result preview pin), pre-fill them
+        // so the form opens with the location already "set". The
+        // passed-in location name is treated as the Apple Maps resolved
+        // name, not as a user-entered custom name — so the custom name
+        // field stays empty.
+        if let initialLatitude { _latitude = State(initialValue: initialLatitude) }
+        if let initialLongitude { _longitude = State(initialValue: initialLongitude) }
+        if let initialLocationName {
+            _resolvedLocationName = State(initialValue: initialLocationName)
         }
+        // `initialHasLocation` from older callers is now a no-op — the
+        // section is always shown. We accept the parameter for source
+        // compatibility but don't act on it.
+        _ = initialHasLocation
     }
 
     // Text dimension
     @State private var title = ""
     @State private var notes = ""
 
-    // Time dimension
-    @State private var hasTime = false
-    @State private var timestamp = Date()
+    // Time dimension. Date and time are independently "set" — the UI shows
+    // a placeholder until each is filled in. Time rows are hidden when
+    // `isAllDay` is true.
+    @State private var isAllDay = false
+    @State private var hasStartDate = false
+    @State private var startDate = Date()
+    @State private var hasStartTime = false
+    @State private var startTime = Date()
+    @State private var hasEndDate = false
+    @State private var endDate = Date()
+    @State private var hasEndTime = false
+    @State private var endTime = Date()
 
-    // Location dimension
-    @State private var hasLocation = false
+    // Location dimension. No gating toggle — the fields are always shown
+    // and an activity has a location whenever both `latitude` and
+    // `longitude` are set (`hasAnyLocation` below).
     @State private var latitude: Double?
     @State private var longitude: Double?
     /// Apple Maps display name for the resolved coordinate (e.g.
@@ -76,9 +90,10 @@ struct CreateActivitySheet: View {
     /// "Enter custom name" hints at the field.
     @State private var customLocationName = ""
 
-    // Completion dimension
-    @State private var trackCompletion = false
-    @State private var isCompleted = false
+    // Completion dimension — tri-state. `.notTracked` (default) saves as
+    // `isCompleted == nil` on the activity; `.pending` saves as `false`;
+    // `.completed` saves as `true`. There's no separate gating toggle.
+    @State private var completionChoice: CompletionChoice = .notTracked
 
     // Collection multi-select
     @State private var availableCollections: [ActivityCollection] = []
@@ -97,12 +112,31 @@ struct CreateActivitySheet: View {
     private var canCreate: Bool {
         // Collections are optional now — activities with zero collections
         // still appear in the virtual "All activities" view.
-        !trimmedTitle.isEmpty && !isCreating
+        !trimmedTitle.isEmpty && !isCreating && timeValidationError == nil
+    }
+
+    /// `nil` when the time inputs are valid; otherwise a human-readable
+    /// reason the form is blocked. Renders inline beneath the time rows.
+    private var timeValidationError: String? {
+        validateTimeRange(
+            isAllDay: isAllDay,
+            hasStartDate: hasStartDate, startDate: startDate,
+            hasStartTime: hasStartTime, startTime: startTime,
+            hasEndDate: hasEndDate, endDate: endDate,
+            hasEndTime: hasEndTime, endTime: endTime
+        )
+    }
+
+    /// True when coordinates are actually set — derived from the latitude
+    /// and longitude fields directly (no separate toggle to keep in sync).
+    private var hasAnyLocation: Bool {
+        latitude != nil && longitude != nil
     }
 
     var body: some View {
         NavigationStack {
             Form {
+                hintSection
                 detailsSection
                 timeSection
                 locationSection
@@ -147,9 +181,38 @@ struct CreateActivitySheet: View {
     // MARK: - Sections
 
     @ViewBuilder
+    private var hintSection: some View {
+        if !onboardingState.hasSeenActivitySheetHint {
+            Section {
+                HStack(alignment: .top, spacing: 10) {
+                    Image(systemName: "info.circle.fill")
+                        .foregroundStyle(.blue)
+                        .padding(.top, 2)
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Only the title is required")
+                            .font(.callout.weight(.semibold))
+                        Text("Every other field is optional — tap any placeholder (\"-/-/--\", \"--:--\", \"Enter custom name\") to fill it in, or leave it empty. You can edit any of these later.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    Button {
+                        withAnimation { onboardingState.markActivitySheetHintSeen() }
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .foregroundStyle(.tertiary)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Dismiss hint")
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
     private var detailsSection: some View {
         Section {
-            TextField("Title", text: $title)
+            TextField("Title (required)", text: $title)
                 .textInputAutocapitalization(.sentences)
                 .onChange(of: title) { _, newValue in
                     if newValue.count > TextLimits.name {
@@ -173,73 +236,108 @@ struct CreateActivitySheet: View {
 
     private var timeSection: some View {
         Section("Time") {
-            Toggle("Add a date and time", isOn: $hasTime)
-            if hasTime {
-                DatePicker(
-                    "When",
-                    selection: $timestamp,
-                    displayedComponents: [.date, .hourAndMinute]
+            Toggle("All day", isOn: $isAllDay)
+
+            OptionalDatePickerRow(
+                label: "Start date",
+                placeholder: "-/-/--",
+                isSet: $hasStartDate,
+                date: $startDate,
+                components: .date
+            )
+            if !isAllDay {
+                OptionalDatePickerRow(
+                    label: "Start time",
+                    placeholder: "--:--",
+                    isSet: $hasStartTime,
+                    date: $startTime,
+                    components: .hourAndMinute
                 )
+            }
+
+            OptionalDatePickerRow(
+                label: "End date",
+                placeholder: "-/-/--",
+                isSet: $hasEndDate,
+                date: $endDate,
+                components: .date
+            )
+            if !isAllDay {
+                OptionalDatePickerRow(
+                    label: "End time",
+                    placeholder: "--:--",
+                    isSet: $hasEndTime,
+                    date: $endTime,
+                    components: .hourAndMinute
+                )
+            }
+
+            if let error = timeValidationError {
+                Text(error)
+                    .font(.caption)
+                    .foregroundStyle(.red)
             }
         }
     }
 
     private var locationSection: some View {
         Section("Location") {
-            Toggle("Add a location", isOn: $hasLocation)
-            if hasLocation {
-                LocationSearchField(
-                    resolvedLocationName: $resolvedLocationName,
-                    latitude: $latitude,
-                    longitude: $longitude
-                )
+            // Always-visible search field. Empty placeholder when nothing
+            // is selected. Picking a suggestion fills lat/lon + resolved name.
+            LocationSearchField(
+                resolvedLocationName: $resolvedLocationName,
+                latitude: $latitude,
+                longitude: $longitude
+            )
 
-                Button(action: fetchCurrentLocation) {
-                    HStack {
-                        if isFetchingLocation {
-                            ProgressView()
-                        } else {
-                            Image(systemName: "location.circle.fill")
-                        }
-                        Text(isFetchingLocation ? "Getting location..." : "Use current location")
-                    }
-                }
-                .disabled(isFetchingLocation)
-
+            Button(action: fetchCurrentLocation) {
                 HStack {
-                    TextField("Enter custom name", text: $customLocationName)
-                        .textInputAutocapitalization(.words)
-                        .onChange(of: customLocationName) { _, newValue in
-                            if newValue.count > TextLimits.name {
-                                customLocationName = String(newValue.prefix(TextLimits.name))
-                            }
-                        }
-                    CharacterCounter(
-                        count: customLocationName.count,
-                        limit: TextLimits.name
-                    )
-                }
-
-                if resolvedLocationName != nil || (latitude != nil && longitude != nil) {
-                    HStack {
-                        Image(systemName: "mappin.and.ellipse")
-                            .foregroundStyle(.red)
-                        Text(resolvedLocationName ?? "Current location")
-                            .font(.subheadline)
-                            .foregroundStyle(.primary)
-                            .lineLimit(1)
-                        Spacer()
-                        Button {
-                            latitude = nil
-                            longitude = nil
-                            resolvedLocationName = nil
-                            customLocationName = ""
-                        } label: {
-                            Image(systemName: "xmark.circle.fill")
-                                .foregroundStyle(.tertiary)
-                        }
-                        .buttonStyle(.plain)
+                    if isFetchingLocation {
+                        ProgressView()
+                    } else {
+                        Image(systemName: "location.circle.fill")
                     }
+                    Text(isFetchingLocation ? "Getting location..." : "Use current location")
+                }
+            }
+            .disabled(isFetchingLocation)
+
+            HStack {
+                TextField("Enter custom name", text: $customLocationName)
+                    .textInputAutocapitalization(.words)
+                    .onChange(of: customLocationName) { _, newValue in
+                        if newValue.count > TextLimits.name {
+                            customLocationName = String(newValue.prefix(TextLimits.name))
+                        }
+                    }
+                CharacterCounter(
+                    count: customLocationName.count,
+                    limit: TextLimits.name
+                )
+            }
+
+            // "Selected" row only shows once coordinates are actually set.
+            // The X clears everything, returning the section to its empty
+            // state (placeholders in the search field and custom name).
+            if hasAnyLocation {
+                HStack {
+                    Image(systemName: "mappin.and.ellipse")
+                        .foregroundStyle(.red)
+                    Text(resolvedLocationName ?? "Current location")
+                        .font(.subheadline)
+                        .foregroundStyle(.primary)
+                        .lineLimit(1)
+                    Spacer()
+                    Button {
+                        latitude = nil
+                        longitude = nil
+                        resolvedLocationName = nil
+                        customLocationName = ""
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .foregroundStyle(.tertiary)
+                    }
+                    .buttonStyle(.plain)
                 }
             }
         }
@@ -247,10 +345,12 @@ struct CreateActivitySheet: View {
 
     private var completionSection: some View {
         Section("Completion") {
-            Toggle("Track completion", isOn: $trackCompletion)
-            if trackCompletion {
-                Toggle("Completed", isOn: $isCompleted)
+            Picker("Status", selection: $completionChoice) {
+                ForEach(CompletionChoice.allCases, id: \.self) { choice in
+                    Text(choice.label).tag(choice)
+                }
             }
+            .pickerStyle(.menu)
         }
     }
 
@@ -366,9 +466,9 @@ struct CreateActivitySheet: View {
         let cleanedNotes = notes.trimmingCharacters(in: .whitespacesAndNewlines)
         // Use the user's custom name when provided; otherwise fall back to
         // the resolved Apple Maps name so the saved activity has a
-        // meaningful label.
+        // meaningful label. When no coordinates are set, name is nil too.
         let cleanedCustomName = customLocationName.trimmingCharacters(in: .whitespacesAndNewlines)
-        let finalLocationName: String? = hasLocation
+        let finalLocationName: String? = hasAnyLocation
             ? (cleanedCustomName.isEmpty ? resolvedLocationName : cleanedCustomName)
             : nil
 
@@ -378,11 +478,21 @@ struct CreateActivitySheet: View {
                     progressItemId: progressItemId,
                     title: trimmedTitle,
                     notes: cleanedNotes.isEmpty ? nil : cleanedNotes,
-                    timestamp: hasTime ? timestamp : nil,
-                    latitude: hasLocation ? latitude : nil,
-                    longitude: hasLocation ? longitude : nil,
+                    timestamp: combineDateAndTime(
+                        hasDate: hasStartDate, date: startDate,
+                        hasTime: hasStartTime, time: startTime,
+                        isAllDay: isAllDay
+                    ),
+                    endTimestamp: combineDateAndTime(
+                        hasDate: hasEndDate, date: endDate,
+                        hasTime: hasEndTime, time: endTime,
+                        isAllDay: isAllDay
+                    ),
+                    isAllDay: isAllDay && hasStartDate,
+                    latitude: latitude,
+                    longitude: longitude,
                     locationName: finalLocationName,
-                    isCompleted: trackCompletion ? isCompleted : nil,
+                    isCompleted: completionChoice.savedValue,
                     collectionIds: Array(selectedCollectionIds)
                 )
                 await MainActor.run {
@@ -406,6 +516,7 @@ struct CreateActivitySheet: View {
 /// but pre-populated and with a delete action.
 struct EditActivitySheet: View {
     @Environment(\.dismiss) private var dismiss
+    @Environment(OnboardingState.self) private var onboardingState
 
     let activity: Activity
     let progressItemId: String
@@ -413,15 +524,20 @@ struct EditActivitySheet: View {
 
     @State private var title = ""
     @State private var notes = ""
-    @State private var hasTime = false
-    @State private var timestamp = Date()
-    @State private var hasLocation = false
+    @State private var isAllDay = false
+    @State private var hasStartDate = false
+    @State private var startDate = Date()
+    @State private var hasStartTime = false
+    @State private var startTime = Date()
+    @State private var hasEndDate = false
+    @State private var endDate = Date()
+    @State private var hasEndTime = false
+    @State private var endTime = Date()
     @State private var latitude: Double?
     @State private var longitude: Double?
     @State private var resolvedLocationName: String?
     @State private var customLocationName = ""
-    @State private var trackCompletion = false
-    @State private var isCompleted = false
+    @State private var completionChoice: CompletionChoice = .notTracked
 
     @State private var availableCollections: [ActivityCollection] = []
     @State private var selectedCollectionIds: Set<String> = []
@@ -439,12 +555,33 @@ struct EditActivitySheet: View {
     private var canUpdate: Bool {
         // Collections are optional — activities with zero collections still
         // appear in the virtual "All activities" view.
-        !trimmedTitle.isEmpty && !isUpdating
+        !trimmedTitle.isEmpty && !isUpdating && timeValidationError == nil
+    }
+
+    /// `nil` when the time inputs are valid; otherwise a human-readable
+    /// reason the form is blocked. Mirrors the validation in
+    /// `CreateActivitySheet`.
+    private var timeValidationError: String? {
+        validateTimeRange(
+            isAllDay: isAllDay,
+            hasStartDate: hasStartDate, startDate: startDate,
+            hasStartTime: hasStartTime, startTime: startTime,
+            hasEndDate: hasEndDate, endDate: endDate,
+            hasEndTime: hasEndTime, endTime: endTime
+        )
+    }
+
+    /// True when coordinates are actually set — derived from the latitude
+    /// and longitude fields directly (no separate toggle to keep in sync).
+    /// Mirrors the helper in `CreateActivitySheet`.
+    private var hasAnyLocation: Bool {
+        latitude != nil && longitude != nil
     }
 
     var body: some View {
         NavigationStack {
             Form {
+                hintSection
                 detailsSection
                 timeSection
                 locationSection
@@ -509,9 +646,38 @@ struct EditActivitySheet: View {
     // MARK: - Sections (same shape as create)
 
     @ViewBuilder
+    private var hintSection: some View {
+        if !onboardingState.hasSeenActivitySheetHint {
+            Section {
+                HStack(alignment: .top, spacing: 10) {
+                    Image(systemName: "info.circle.fill")
+                        .foregroundStyle(.blue)
+                        .padding(.top, 2)
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Only the title is required")
+                            .font(.callout.weight(.semibold))
+                        Text("Every other field is optional — tap any placeholder (\"-/-/--\", \"--:--\", \"Enter custom name\") to fill it in, or leave it empty. You can edit any of these later.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    Button {
+                        withAnimation { onboardingState.markActivitySheetHintSeen() }
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .foregroundStyle(.tertiary)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Dismiss hint")
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
     private var detailsSection: some View {
         Section {
-            TextField("Title", text: $title)
+            TextField("Title (required)", text: $title)
                 .textInputAutocapitalization(.sentences)
                 .onChange(of: title) { _, newValue in
                     if newValue.count > TextLimits.name {
@@ -535,73 +701,108 @@ struct EditActivitySheet: View {
 
     private var timeSection: some View {
         Section("Time") {
-            Toggle("Add a date and time", isOn: $hasTime)
-            if hasTime {
-                DatePicker(
-                    "When",
-                    selection: $timestamp,
-                    displayedComponents: [.date, .hourAndMinute]
+            Toggle("All day", isOn: $isAllDay)
+
+            OptionalDatePickerRow(
+                label: "Start date",
+                placeholder: "-/-/--",
+                isSet: $hasStartDate,
+                date: $startDate,
+                components: .date
+            )
+            if !isAllDay {
+                OptionalDatePickerRow(
+                    label: "Start time",
+                    placeholder: "--:--",
+                    isSet: $hasStartTime,
+                    date: $startTime,
+                    components: .hourAndMinute
                 )
+            }
+
+            OptionalDatePickerRow(
+                label: "End date",
+                placeholder: "-/-/--",
+                isSet: $hasEndDate,
+                date: $endDate,
+                components: .date
+            )
+            if !isAllDay {
+                OptionalDatePickerRow(
+                    label: "End time",
+                    placeholder: "--:--",
+                    isSet: $hasEndTime,
+                    date: $endTime,
+                    components: .hourAndMinute
+                )
+            }
+
+            if let error = timeValidationError {
+                Text(error)
+                    .font(.caption)
+                    .foregroundStyle(.red)
             }
         }
     }
 
     private var locationSection: some View {
         Section("Location") {
-            Toggle("Add a location", isOn: $hasLocation)
-            if hasLocation {
-                LocationSearchField(
-                    resolvedLocationName: $resolvedLocationName,
-                    latitude: $latitude,
-                    longitude: $longitude
-                )
+            // Always-visible search field. Empty placeholder when nothing
+            // is selected. Picking a suggestion fills lat/lon + resolved name.
+            LocationSearchField(
+                resolvedLocationName: $resolvedLocationName,
+                latitude: $latitude,
+                longitude: $longitude
+            )
 
-                Button(action: fetchCurrentLocation) {
-                    HStack {
-                        if isFetchingLocation {
-                            ProgressView()
-                        } else {
-                            Image(systemName: "location.circle.fill")
-                        }
-                        Text(isFetchingLocation ? "Getting location..." : "Use current location")
-                    }
-                }
-                .disabled(isFetchingLocation)
-
+            Button(action: fetchCurrentLocation) {
                 HStack {
-                    TextField("Enter custom name", text: $customLocationName)
-                        .textInputAutocapitalization(.words)
-                        .onChange(of: customLocationName) { _, newValue in
-                            if newValue.count > TextLimits.name {
-                                customLocationName = String(newValue.prefix(TextLimits.name))
-                            }
-                        }
-                    CharacterCounter(
-                        count: customLocationName.count,
-                        limit: TextLimits.name
-                    )
-                }
-
-                if resolvedLocationName != nil || (latitude != nil && longitude != nil) {
-                    HStack {
-                        Image(systemName: "mappin.and.ellipse")
-                            .foregroundStyle(.red)
-                        Text(resolvedLocationName ?? "Current location")
-                            .font(.subheadline)
-                            .foregroundStyle(.primary)
-                            .lineLimit(1)
-                        Spacer()
-                        Button {
-                            latitude = nil
-                            longitude = nil
-                            resolvedLocationName = nil
-                            customLocationName = ""
-                        } label: {
-                            Image(systemName: "xmark.circle.fill")
-                                .foregroundStyle(.tertiary)
-                        }
-                        .buttonStyle(.plain)
+                    if isFetchingLocation {
+                        ProgressView()
+                    } else {
+                        Image(systemName: "location.circle.fill")
                     }
+                    Text(isFetchingLocation ? "Getting location..." : "Use current location")
+                }
+            }
+            .disabled(isFetchingLocation)
+
+            HStack {
+                TextField("Enter custom name", text: $customLocationName)
+                    .textInputAutocapitalization(.words)
+                    .onChange(of: customLocationName) { _, newValue in
+                        if newValue.count > TextLimits.name {
+                            customLocationName = String(newValue.prefix(TextLimits.name))
+                        }
+                    }
+                CharacterCounter(
+                    count: customLocationName.count,
+                    limit: TextLimits.name
+                )
+            }
+
+            // "Selected" row only shows once coordinates are actually set.
+            // The X clears everything, returning the section to its empty
+            // state (placeholders in the search field and custom name).
+            if hasAnyLocation {
+                HStack {
+                    Image(systemName: "mappin.and.ellipse")
+                        .foregroundStyle(.red)
+                    Text(resolvedLocationName ?? "Current location")
+                        .font(.subheadline)
+                        .foregroundStyle(.primary)
+                        .lineLimit(1)
+                    Spacer()
+                    Button {
+                        latitude = nil
+                        longitude = nil
+                        resolvedLocationName = nil
+                        customLocationName = ""
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .foregroundStyle(.tertiary)
+                    }
+                    .buttonStyle(.plain)
                 }
             }
         }
@@ -609,10 +810,12 @@ struct EditActivitySheet: View {
 
     private var completionSection: some View {
         Section("Completion") {
-            Toggle("Track completion", isOn: $trackCompletion)
-            if trackCompletion {
-                Toggle("Completed", isOn: $isCompleted)
+            Picker("Status", selection: $completionChoice) {
+                ForEach(CompletionChoice.allCases, id: \.self) { choice in
+                    Text(choice.label).tag(choice)
+                }
             }
+            .pickerStyle(.menu)
         }
     }
 
@@ -687,9 +890,24 @@ struct EditActivitySheet: View {
     private func prefill() {
         title = activity.title
         notes = activity.notes ?? ""
-        hasTime = activity.timestamp != nil
-        timestamp = activity.timestamp ?? Date()
-        hasLocation = activity.hasLocation
+
+        // Time: split the stored timestamp(s) into the four independent
+        // "is set" + value pairs. Time portions are only marked as set
+        // when the activity isn't all-day.
+        isAllDay = activity.isAllDay
+        if let start = activity.timestamp {
+            hasStartDate = true
+            startDate = start
+            hasStartTime = !activity.isAllDay
+            startTime = start
+        }
+        if let end = activity.endTimestamp {
+            hasEndDate = true
+            endDate = end
+            hasEndTime = !activity.isAllDay
+            endTime = end
+        }
+
         latitude = activity.latitude
         longitude = activity.longitude
         // Show the persisted name in the location display row via
@@ -698,8 +916,7 @@ struct EditActivitySheet: View {
         // the resolved name (same priority as create).
         resolvedLocationName = activity.locationName
         customLocationName = ""
-        trackCompletion = activity.isCompleted != nil
-        isCompleted = activity.isCompleted ?? false
+        completionChoice = CompletionChoice.from(activity.isCompleted)
         selectedCollectionIds = Set(activity.collectionIds)
     }
 
@@ -752,13 +969,29 @@ struct EditActivitySheet: View {
         // Since this form represents the full state every time, we always
         // pass .some(...) for every field.
         let notesParam: String?? = cleanedNotes.isEmpty ? .some(nil) : .some(cleanedNotes)
-        let timestampParam: Date?? = hasTime ? .some(timestamp) : .some(nil)
-        let latitudeParam: Double?? = hasLocation ? .some(latitude) : .some(nil)
-        let longitudeParam: Double?? = hasLocation ? .some(longitude) : .some(nil)
-        // Custom name wins; otherwise fall back to the resolved Apple Maps
-        // name from a fresh search, otherwise clear the field.
+        let computedStart = combineDateAndTime(
+            hasDate: hasStartDate, date: startDate,
+            hasTime: hasStartTime, time: startTime,
+            isAllDay: isAllDay
+        )
+        let computedEnd = combineDateAndTime(
+            hasDate: hasEndDate, date: endDate,
+            hasTime: hasEndTime, time: endTime,
+            isAllDay: isAllDay
+        )
+        let timestampParam: Date?? = .some(computedStart)
+        let endTimestampParam: Date?? = .some(computedEnd)
+        let isAllDayParam: Bool? = isAllDay && hasStartDate
+        // Always send the current values; nil ⇒ clear. There's no
+        // separate "has location" flag — coordinates being nil IS the
+        // signal that the activity has no location.
+        let latitudeParam: Double?? = .some(latitude)
+        let longitudeParam: Double?? = .some(longitude)
+        // Custom name wins; otherwise fall back to the resolved Apple
+        // Maps name; otherwise clear. When coordinates are absent the
+        // name is also cleared.
         let locationNameParam: String??
-        if hasLocation {
+        if hasAnyLocation {
             if !cleanedCustomName.isEmpty {
                 locationNameParam = .some(cleanedCustomName)
             } else if let resolvedLocationName, !resolvedLocationName.isEmpty {
@@ -769,7 +1002,9 @@ struct EditActivitySheet: View {
         } else {
             locationNameParam = .some(nil)
         }
-        let isCompletedParam: Bool?? = trackCompletion ? .some(isCompleted) : .some(nil)
+        // Always send the user's choice — `.notTracked` becomes nil
+        // server-side, `.pending` is false, `.completed` is true.
+        let isCompletedParam: Bool?? = .some(completionChoice.savedValue)
 
         Task {
             do {
@@ -779,6 +1014,8 @@ struct EditActivitySheet: View {
                     title: trimmedTitle,
                     notes: notesParam,
                     timestamp: timestampParam,
+                    endTimestamp: endTimestampParam,
+                    isAllDay: isAllDayParam,
                     latitude: latitudeParam,
                     longitude: longitudeParam,
                     locationName: locationNameParam,
@@ -816,4 +1053,137 @@ struct EditActivitySheet: View {
 
 #Preview {
     CreateActivitySheet(progressItemId: "test123")
+}
+
+// MARK: - Completion (shared by Create + Edit)
+
+/// Three-state completion picker. Maps to the stored `Bool?` field:
+/// - `.notTracked` ⇒ `nil` (the activity isn't completion-tracked)
+/// - `.pending`    ⇒ `false`
+/// - `.completed`  ⇒ `true`
+private enum CompletionChoice: Hashable, CaseIterable {
+    case notTracked
+    case pending
+    case completed
+
+    var label: String {
+        switch self {
+        case .notTracked: return "Not tracked"
+        case .pending:    return "Pending"
+        case .completed:  return "Completed"
+        }
+    }
+
+    var savedValue: Bool? {
+        switch self {
+        case .notTracked: return nil
+        case .pending:    return false
+        case .completed:  return true
+        }
+    }
+
+    static func from(_ saved: Bool?) -> CompletionChoice {
+        switch saved {
+        case .none:        return .notTracked
+        case .some(false): return .pending
+        case .some(true):  return .completed
+        }
+    }
+}
+
+// MARK: - Time helpers (shared by Create + Edit)
+
+/// A form row that shows a "set" `DatePicker` when filled and a tappable
+/// placeholder button when empty. Used for the four time fields so the
+/// editor renders every option up-front without a gating section toggle.
+private struct OptionalDatePickerRow: View {
+    let label: String
+    let placeholder: String
+    @Binding var isSet: Bool
+    @Binding var date: Date
+    let components: DatePickerComponents
+
+    var body: some View {
+        HStack {
+            Text(label)
+                .foregroundStyle(.primary)
+            Spacer()
+            if isSet {
+                DatePicker("", selection: $date, displayedComponents: components)
+                    .labelsHidden()
+                Button {
+                    isSet = false
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundStyle(.tertiary)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Clear \(label)")
+            } else {
+                Button {
+                    isSet = true
+                } label: {
+                    Text(placeholder)
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Add \(label)")
+            }
+        }
+    }
+}
+
+/// Combines an independently-set date and time pair into a single `Date`,
+/// honouring the all-day flag (forces midnight) and the case where only
+/// the date is set (also normalized to start-of-day).
+///
+/// Returns `nil` when no date is set — that's the editor's signal that
+/// this side of the time range is unset.
+private func combineDateAndTime(
+    hasDate: Bool,
+    date: Date,
+    hasTime: Bool,
+    time: Date,
+    isAllDay: Bool
+) -> Date? {
+    guard hasDate else { return nil }
+    let cal = Foundation.Calendar.current
+    if isAllDay || !hasTime {
+        return cal.startOfDay(for: date)
+    }
+    var components = cal.dateComponents([.year, .month, .day], from: date)
+    let timeComponents = cal.dateComponents([.hour, .minute], from: time)
+    components.hour = timeComponents.hour
+    components.minute = timeComponents.minute
+    return cal.date(from: components) ?? date
+}
+
+/// Validates the time inputs. Returns `nil` on success or an inline error
+/// string to surface beneath the time rows.
+private func validateTimeRange(
+    isAllDay: Bool,
+    hasStartDate: Bool, startDate: Date,
+    hasStartTime: Bool, startTime: Date,
+    hasEndDate: Bool, endDate: Date,
+    hasEndTime: Bool, endTime: Date
+) -> String? {
+    // End without start is invalid — Activity.endTimestamp without
+    // .timestamp is reserved for legacy/imported docs, not user input.
+    if hasEndDate, !hasStartDate {
+        return "Set a start date before adding an end."
+    }
+    let start = combineDateAndTime(
+        hasDate: hasStartDate, date: startDate,
+        hasTime: hasStartTime, time: startTime,
+        isAllDay: isAllDay
+    )
+    let end = combineDateAndTime(
+        hasDate: hasEndDate, date: endDate,
+        hasTime: hasEndTime, time: endTime,
+        isAllDay: isAllDay
+    )
+    if let start, let end, end <= start {
+        return "End must be after start."
+    }
+    return nil
 }

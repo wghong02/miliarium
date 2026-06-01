@@ -22,6 +22,7 @@ final class OnboardingState {
     private static let calendarHintKey = "miliarium.onboarding.hasSeenCalendarHint"
     private static let mapHintKey = "miliarium.onboarding.hasSeenMapHint"
     private static let activityHintKey = "miliarium.onboarding.hasSeenActivityHint"
+    private static let activitySheetHintKey = "miliarium.onboarding.hasSeenActivitySheetHint"
 
     var hasSeenWelcome: Bool {
         didSet { UserDefaults.standard.set(hasSeenWelcome, forKey: Self.welcomeKey) }
@@ -41,6 +42,12 @@ final class OnboardingState {
     var hasSeenActivityHint: Bool {
         didSet { UserDefaults.standard.set(hasSeenActivityHint, forKey: Self.activityHintKey) }
     }
+    /// One-time hint shown at the top of the Create/Edit Activity sheet —
+    /// explains which fields are required vs. optional and the "tap a
+    /// placeholder to add it" pattern.
+    var hasSeenActivitySheetHint: Bool {
+        didSet { UserDefaults.standard.set(hasSeenActivitySheetHint, forKey: Self.activitySheetHintKey) }
+    }
 
     /// Live count of collections in the currently-active progress.
     private(set) var collectionCount: Int = 0
@@ -58,6 +65,7 @@ final class OnboardingState {
         self.hasSeenCalendarHint = defaults.bool(forKey: Self.calendarHintKey)
         self.hasSeenMapHint = defaults.bool(forKey: Self.mapHintKey)
         self.hasSeenActivityHint = defaults.bool(forKey: Self.activityHintKey)
+        self.hasSeenActivitySheetHint = defaults.bool(forKey: Self.activitySheetHintKey)
     }
 
     // MARK: - Public API
@@ -71,9 +79,10 @@ final class OnboardingState {
         tearDownListeners()
     }
 
-    func markCalendarHintSeen() { hasSeenCalendarHint = true }
-    func markMapHintSeen()      { hasSeenMapHint      = true }
-    func markActivityHintSeen() { hasSeenActivityHint = true }
+    func markCalendarHintSeen()      { hasSeenCalendarHint = true }
+    func markMapHintSeen()           { hasSeenMapHint      = true }
+    func markActivityHintSeen()      { hasSeenActivityHint = true }
+    func markActivitySheetHintSeen() { hasSeenActivitySheetHint = true }
 
     /// Resets all onboarding flags so the welcome sheet, Home-tab tutorial
     /// banner, and every per-tab hint reappear from scratch. Called from
@@ -84,6 +93,7 @@ final class OnboardingState {
         hasSeenCalendarHint = false
         hasSeenMapHint = false
         hasSeenActivityHint = false
+        hasSeenActivitySheetHint = false
     }
 
     /// Returns the step the banner should display, given the current
@@ -165,7 +175,7 @@ enum TutorialStep: Int, Sendable {
         switch self {
         case .createProgress: return "square.stack.fill"
         case .createCollection: return "folder.badge.plus"
-        case .createActivity: return "plus.circle.fill"
+        case .createActivity: return "doc.badge.plus"
         case .done: return "checkmark.seal.fill"
         }
     }

@@ -118,7 +118,7 @@ struct MapView: View {
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button(action: { showCurrentLocationCreate = true }) {
-                        Image(systemName: "plus.circle.fill")
+                        Image(systemName: "doc.badge.plus")
                     }
                 }
             }
@@ -232,7 +232,7 @@ struct MapView: View {
                             Circle()
                                 .fill(.white)
                                 .frame(width: 36, height: 36)
-                            Image(systemName: "plus.circle.fill")
+                            Image(systemName: "doc.badge.plus")
                                 .font(.title)
                                 .foregroundStyle(.purple)
                         }
