@@ -31,8 +31,17 @@ struct HomeSectionView: View {
                     // visible during the empty-progresses state too — that's
                     // when the "create your first progress" step needs to
                     // surface most.
-                    TutorialBanner(step: tutorialStep) {
-                        onboardingState.dismissTutorial()
+                    //
+                    // No `.transition` and no `.animation(value:)` here:
+                    // both can cause a flash on tab switches when SwiftUI
+                    // re-evaluates the view tree. The banner appears /
+                    // disappears instantly when state actually changes
+                    // (dismiss, step auto-advance), which is acceptable for
+                    // a one-time tutorial cue.
+                    if tutorialStep != .done {
+                        TutorialBanner(step: tutorialStep) {
+                            onboardingState.dismissTutorial()
+                        }
                     }
 
                     Group {
@@ -56,7 +65,6 @@ struct HomeSectionView: View {
                     }
                 }
                 .padding(.horizontal)
-                .animation(.easeInOut(duration: 0.25), value: tutorialStep)
             }
             .navigationTitle("Home")
             .navigationBarTitleDisplayMode(.inline)

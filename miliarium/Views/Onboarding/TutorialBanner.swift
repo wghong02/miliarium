@@ -15,41 +15,45 @@ struct TutorialBanner: View {
     let onDismiss: () -> Void
 
     var body: some View {
-        if let ordinal = step.ordinal {
-            VStack(alignment: .leading, spacing: 8) {
-                HStack(spacing: 8) {
-                    Image(systemName: step.icon)
-                        .foregroundStyle(.blue)
-                        .frame(width: 18)
-                    Text("Step \(ordinal) of \(TutorialStep.totalSteps)")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(.blue)
-                    Spacer()
-                    Button(action: onDismiss) {
-                        Image(systemName: "xmark")
-                            .font(.caption2.weight(.semibold))
-                            .foregroundStyle(.secondary)
-                            .padding(4)
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("Dismiss tutorial")
+        // Renders unconditionally. The parent decides whether to include
+        // this view in the hierarchy (see `HomeSectionView`) — that's
+        // what drives the appear/disappear animation, not anything inside
+        // this body. Defensive `?? 0` for `ordinal` is just belt-and-braces
+        // in case a caller renders us with `.done` — the parent won't, in
+        // practice.
+        let ordinal = step.ordinal ?? 0
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 8) {
+                Image(systemName: step.icon)
+                    .foregroundStyle(.blue)
+                    .frame(width: 18)
+                Text("Step \(ordinal) of \(TutorialStep.totalSteps)")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.blue)
+                Spacer()
+                Button(action: onDismiss) {
+                    Image(systemName: "xmark")
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                        .padding(4)
                 }
-                Text(step.instruction)
-                    .font(.callout)
-                    .foregroundStyle(.primary)
-                    .fixedSize(horizontal: false, vertical: true)
+                .buttonStyle(.plain)
+                .accessibilityLabel("Dismiss tutorial")
             }
-            .padding(12)
-            .background(
-                RoundedRectangle(cornerRadius: 12)
-                    .fill(Color.blue.opacity(0.08))
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 12)
-                    .stroke(Color.blue.opacity(0.2), lineWidth: 1)
-            )
-            .transition(.opacity.combined(with: .move(edge: .top)))
+            Text(step.instruction)
+                .font(.callout)
+                .foregroundStyle(.primary)
+                .fixedSize(horizontal: false, vertical: true)
         }
+        .padding(12)
+        .background(
+            RoundedRectangle(cornerRadius: 12)
+                .fill(Color.blue.opacity(0.08))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 12)
+                .stroke(Color.blue.opacity(0.2), lineWidth: 1)
+        )
     }
 }
 
