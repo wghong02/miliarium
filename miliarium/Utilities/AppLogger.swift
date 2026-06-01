@@ -23,4 +23,5 @@ enum AppLogger {
     static var auth:               Logger { Logger(subsystem: subsystem, category: "AuthViewModel") }
     static var invitationVM:       Logger { Logger(subsystem: subsystem, category: "InvitationViewModel") }
     static var progressStore:      Logger { Logger(subsystem: subsystem, category: "ProgressStore") }
+    static var notification:       Logger { Logger(subsystem: subsystem, category: "NotificationService") }
 }
