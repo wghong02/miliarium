@@ -6,6 +6,7 @@ import FirebaseFirestore
 /// selected progress is shared app-wide via `ProgressStore`).
 struct CalendarSectionView: View {
     @Environment(ProgressStore.self) private var progressStore
+    @Environment(OnboardingState.self) private var onboardingState
 
     @State private var collections: [ActivityCollection] = []
     @State private var collectionsListener: ListenerRegistration?
@@ -13,26 +14,41 @@ struct CalendarSectionView: View {
 
     var body: some View {
         NavigationStack {
-            Group {
-                if progressStore.progresses.isEmpty {
-                    ContentUnavailableView {
-                        Label("No progress yet", systemImage: "calendar")
-                    } description: {
-                        Text("Create a progress item in the Home tab to get started with the calendar.")
+            VStack(spacing: 0) {
+                if !onboardingState.hasSeenCalendarHint {
+                    TabHintBanner(
+                        icon: "calendar",
+                        title: "Activities with a time",
+                        message: "Any activity with a date and time appears here as a dot on its day. Tap a day to see what's scheduled, or use + to add a new activity for the selected day."
+                    ) {
+                        withAnimation { onboardingState.markCalendarHintSeen() }
                     }
-                } else if let selectedId = progressStore.selectedProgressId,
-                          let selectedItem = progressStore.progresses.first(where: { $0.id == selectedId }) {
-                    CalendarView(
-                        progressItemId: selectedId,
-                        progressTitle: selectedItem.title,
-                        selectedCollectionId: selectedCollectionId
-                    )
-                } else {
-                    ContentUnavailableView(
-                        "Choose a progress",
-                        systemImage: "chevron.down.circle",
-                        description: Text("Select a progress from the Home tab to view its calendar.")
-                    )
+                    .padding(.horizontal)
+                    .padding(.top, 8)
+                    .padding(.bottom, 6)
+                }
+
+                Group {
+                    if progressStore.progresses.isEmpty {
+                        ContentUnavailableView {
+                            Label("No progress yet", systemImage: "calendar")
+                        } description: {
+                            Text("Create a progress item in the Home tab to get started with the calendar.")
+                        }
+                    } else if let selectedId = progressStore.selectedProgressId,
+                              let selectedItem = progressStore.progresses.first(where: { $0.id == selectedId }) {
+                        CalendarView(
+                            progressItemId: selectedId,
+                            progressTitle: selectedItem.title,
+                            selectedCollectionId: selectedCollectionId
+                        )
+                    } else {
+                        ContentUnavailableView(
+                            "Choose a progress",
+                            systemImage: "chevron.down.circle",
+                            description: Text("Select a progress from the Home tab to view its calendar.")
+                        )
+                    }
                 }
             }
             .toolbar {

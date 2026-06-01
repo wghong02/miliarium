@@ -5,6 +5,7 @@ struct HomeSectionView: View {
     @Environment(ProgressStore.self) private var progressStore
     @Environment(InvitationViewModel.self) private var invitationVM
     @Environment(AuthViewModel.self) private var authVM
+    @Environment(OnboardingState.self) private var onboardingState
 
     @State private var showCreateProgress = false
     @State private var showDeleteConfirmation = false
@@ -16,10 +17,24 @@ struct HomeSectionView: View {
     @State private var deleteErrorMessage: String?
     @State private var currentUserId: String?
 
+    /// The current onboarding step, recomputed on every render from the
+    /// live counts the `OnboardingState` listeners maintain.
+    private var tutorialStep: TutorialStep {
+        onboardingState.currentStep(progressCount: progressStore.progresses.count)
+    }
+
     var body: some View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
+                    // Tutorial banner sits above everything else so it's
+                    // visible during the empty-progresses state too — that's
+                    // when the "create your first progress" step needs to
+                    // surface most.
+                    TutorialBanner(step: tutorialStep) {
+                        onboardingState.dismissTutorial()
+                    }
+
                     Group {
                         if progressStore.isLoading {
                             ProgressView()
@@ -41,6 +56,7 @@ struct HomeSectionView: View {
                     }
                 }
                 .padding(.horizontal)
+                .animation(.easeInOut(duration: 0.25), value: tutorialStep)
             }
             .navigationTitle("Home")
             .navigationBarTitleDisplayMode(.inline)
@@ -62,9 +78,16 @@ struct HomeSectionView: View {
             }
             .onAppear {
                 currentUserId = authVM.user?.uid
+                onboardingState.updateForActiveProgress(progressStore.selectedProgressId)
             }
             .onChange(of: authVM.user?.uid) { _, newValue in
                 currentUserId = newValue
+            }
+            .onChange(of: progressStore.selectedProgressId) { _, newId in
+                // Re-target the onboarding listeners at the new progress
+                // so step detection (collectionCount / activityCount)
+                // reflects whichever progress is currently selected.
+                onboardingState.updateForActiveProgress(newId)
             }
             .sheet(isPresented: $showCreateProgress) {
                 CreateProgressSheet { title in

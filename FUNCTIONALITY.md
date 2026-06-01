@@ -683,3 +683,87 @@ All widgets ship inside the main app's `.ipa`. The user adds them once from the 
 - Adding, editing, or deleting an activity in any progress refreshes both widgets within seconds.
 - Signing out triggers a `stop()` that clears every snapshot file and tears down all listeners.
 - A re-sign-in re-establishes listeners on the next `progressStore.progresses` change.
+
+---
+
+## 13. Onboarding
+
+### 13.1 Welcome sheet 🖼
+
+**Behavior**
+- On the first authenticated launch where `UserDefaults` does not yet have the `hasSeenWelcome` flag set, a sheet appears with **3** paginated pages.
+- Pages are: (1) "Welcome to Miliarium" intro, (2) "Start with a Progress" explainer, (3) "Activities & Collections" explainer.
+- Each page shows a large hierarchical SF Symbol, title, and body text.
+- A **Next** button advances to the next page; on the final page it becomes **Get started** and dismisses the sheet.
+- A small **Skip** link in the top-right is visible on every page *except* the last.
+- Sheet supports swipe-down dismissal.
+
+**Expectations**
+- Any dismissal path (Get started, Skip, or swipe-down) sets `hasSeenWelcome` in `UserDefaults` — the sheet never reappears on the same device.
+- Signing out and signing back in does not re-present the sheet.
+- Uninstalling and reinstalling the app *will* re-present it (UserDefaults is cleared).
+
+### 13.2 Tutorial banner (Home tab) 🖼
+
+**Behavior**
+- After the welcome sheet is dismissed (and at any subsequent Home tab visit while the tutorial hasn't yet been dismissed), a small blue-tinted banner appears above the home content listing the user's current step.
+- The banner shows: a step icon, "Step *N* of 3" label, the instruction text, and a small `xmark` button on the right to permanently dismiss the tutorial.
+- The three steps in order:
+  1. **Create your first progress** — instructs to use the top-left picker.
+  2. **Create your first collection** — instructs to use the `+` on the Collections section.
+  3. **Add your first activity** — instructs to use the `+` in the top-right toolbar.
+- Step advancement is automatic via real-time Firestore listeners on the active progress's `collections` and `activities` sub-collections — no per-step "Next" button.
+- The banner animates in/out (fade + slide from top) when the step changes or it disappears.
+
+**Expectations**
+- The banner is hidden whenever the computed step is `.done` (all three completed, OR user has tapped X, OR user is an existing user with pre-existing data).
+- Tapping the X sets `hasDismissedTutorial` in `UserDefaults` and tears down the onboarding listeners — the banner never reappears even if the user later deletes everything.
+- Completing all three steps without explicit dismissal does *not* set the dismissed flag — if the user later deletes everything and ends up with zero collections/activities on a new progress, the banner can reappear (rare case, accepted as a tradeoff).
+- The step is recomputed against the *currently selected* progress's counts — switching to a different empty progress while the tutorial is active reverts the banner to step 2 or 3 as applicable.
+
+**Edge cases**
+- A user with existing data (e.g. migrating from a pre-onboarding version) sees the welcome sheet but the banner is immediately `.done` and never appears — their `progressCount > 0`, `collectionCount > 0`, `activityCount > 0` from the first listener fire.
+- The Home banner does not appear on Calendar, Map, Activity, or Profile tabs — those tabs have their own one-time hint banners (§13.3).
+- If the active progress has not yet been selected (e.g. just after sign-in, before the first listener fires), the banner can momentarily show step 1 even when progresses exist; it self-corrects on the next listener fire (under a second).
+
+### 13.3 Per-tab hint banners 🖼
+
+**Behavior**
+- The first time the user opens **Calendar**, **Map**, or **Activity**, an informational banner appears at the top of that tab explaining what the tab is for. Each banner is dismissible via an `xmark` and is **independent** of the Home tab's step machine.
+- Visually identical to the Home tutorial banner (same blue-tinted card style) so users learn one pattern.
+
+**Calendar tab hint**
+- Icon: `calendar`. Title: "Activities with a time".
+- Body explains that activities with a date and time appear here as dots, and the `+` adds a new one pre-filled to the selected day.
+
+**Map tab hint**
+- Icon: `mappin.circle.fill`. Title: "Activities with a location".
+- Body explains that located activities show up as pins, the search bar drops a preview pin, and tapping an existing pin lets the user move collections / edit / delete.
+- Presented as a **modal sheet** (not a banner) that slides up from the bottom on the first Map tab visit. Uses a small detent (`~0.35`) so the map remains visible behind it, and `presentationBackgroundInteraction(.enabled)` so the map stays tappable. Sheet has a "Got it" CTA, a drag indicator at the top, and is dismissible by swipe-down — any dismissal path marks the hint as seen.
+
+**Activity tab hint**
+- Icon: `envelope.fill`. Title: "Invitations & collaboration".
+- Body explains that invitations from people sharing their progress arrive here (accept to collaborate, decline to dismiss), and that future notification types will surface in the same place.
+
+**Expectations**
+- Each banner appears at most once per device — dismissal sets a separate `UserDefaults` flag (`hasSeenCalendarHint`, `hasSeenMapHint`, `hasSeenActivityHint`).
+- The three flags are **independent** — dismissing the Calendar hint has no effect on the Map or Activity hints.
+- Sign-out / sign-in does not re-present any of them.
+- For Calendar and Activity, the hint stacks **above** the tab's main content (pushing the content down). For Map, the hint is a **bottom-detent modal sheet** so the map keeps the full screen — it auto-presents on first appear and is dismissed via "Got it" or swipe-down.
+
+**Edge cases**
+- Existing users (pre-onboarding) see each hint exactly once the first time they open the respective tab after updating.
+- For tabs that require a selected progress to be useful (Calendar, Map), the hint still shows in the "no progress yet" empty state — it's tab-level guidance, not progress-scoped.
+
+### 13.4 Show tutorial again (Profile tab) 🖼
+
+**Behavior**
+- The Profile tab has a "Help" section containing a single row: **"Show tutorial again"** (blue `questionmark.circle` icon).
+- A footer beneath the row reads: "Resets the welcome sheet and the per-tab hint banners so they appear again."
+- Tapping the row clears all five onboarding `UserDefaults` flags: `hasSeenWelcome`, `hasDismissedTutorial`, `hasSeenCalendarHint`, `hasSeenMapHint`, `hasSeenActivityHint`.
+
+**Expectations**
+- The welcome sheet (§13.1) reappears immediately — `ContentView` observes the `hasSeenWelcome` flip and presents the sheet over the current tab.
+- The Home tab tutorial banner (§13.2) reappears the next time the user visits the Home tab (or immediately if they're already on it), starting from whichever step is currently incomplete (or staying hidden if all 3 steps are already done — resetting doesn't undo the user's real progress / collection / activity creation).
+- The Calendar, Map, and Activity tab hints (§13.3) reappear the next time the user visits each respective tab.
+- The action is a single tap — no confirmation alert, no destructive role — since it only changes UI flags and creates no risk of data loss.
