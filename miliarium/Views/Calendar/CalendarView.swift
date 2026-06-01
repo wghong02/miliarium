@@ -372,10 +372,10 @@ private struct CalendarActivityRow: View {
     let activity: Activity
 
     private var timeString: String {
-        guard let ts = activity.timestamp else { return "" }
-        let f = DateFormatter()
-        f.timeStyle = .short
-        return f.string(from: ts)
+        // Prefer the model's range formatter — yields "9:00 AM" when there
+        // is no end time, "9:00 AM – 10:30 AM" for same-day ranges, or
+        // "May 31, 9:00 AM – Jun 1, 2:00 PM" for cross-day ranges.
+        activity.timeRangeDescription ?? ""
     }
 
     var body: some View {

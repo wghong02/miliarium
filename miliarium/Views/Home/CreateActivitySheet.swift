@@ -34,11 +34,13 @@ struct CreateActivitySheet: View {
         self.initialLocationName = initialLocationName
         self.onActivityCreated = onActivityCreated
 
-        // When opened from the Calendar tab we want the time dimension
-        // already enabled and the date pre-filled to the selected day.
+        // When opened from the Calendar tab we want both date and time
+        // pre-filled to the selected day.
         if let initialTimestamp {
-            _hasTime = State(initialValue: true)
-            _timestamp = State(initialValue: initialTimestamp)
+            _hasStartDate = State(initialValue: true)
+            _startDate = State(initialValue: initialTimestamp)
+            _hasStartTime = State(initialValue: true)
+            _startTime = State(initialValue: initialTimestamp)
         }
         // When opened from the Map tab we want the location dimension
         // already enabled. If coordinates are also passed (e.g. the user
@@ -60,9 +62,18 @@ struct CreateActivitySheet: View {
     @State private var title = ""
     @State private var notes = ""
 
-    // Time dimension
-    @State private var hasTime = false
-    @State private var timestamp = Date()
+    // Time dimension. Date and time are independently "set" — the UI shows
+    // a placeholder until each is filled in. Time rows are hidden when
+    // `isAllDay` is true.
+    @State private var isAllDay = false
+    @State private var hasStartDate = false
+    @State private var startDate = Date()
+    @State private var hasStartTime = false
+    @State private var startTime = Date()
+    @State private var hasEndDate = false
+    @State private var endDate = Date()
+    @State private var hasEndTime = false
+    @State private var endTime = Date()
 
     // Location dimension
     @State private var hasLocation = false
@@ -97,7 +108,19 @@ struct CreateActivitySheet: View {
     private var canCreate: Bool {
         // Collections are optional now — activities with zero collections
         // still appear in the virtual "All activities" view.
-        !trimmedTitle.isEmpty && !isCreating
+        !trimmedTitle.isEmpty && !isCreating && timeValidationError == nil
+    }
+
+    /// `nil` when the time inputs are valid; otherwise a human-readable
+    /// reason the form is blocked. Renders inline beneath the time rows.
+    private var timeValidationError: String? {
+        validateTimeRange(
+            isAllDay: isAllDay,
+            hasStartDate: hasStartDate, startDate: startDate,
+            hasStartTime: hasStartTime, startTime: startTime,
+            hasEndDate: hasEndDate, endDate: endDate,
+            hasEndTime: hasEndTime, endTime: endTime
+        )
     }
 
     var body: some View {
@@ -173,13 +196,46 @@ struct CreateActivitySheet: View {
 
     private var timeSection: some View {
         Section("Time") {
-            Toggle("Add a date and time", isOn: $hasTime)
-            if hasTime {
-                DatePicker(
-                    "When",
-                    selection: $timestamp,
-                    displayedComponents: [.date, .hourAndMinute]
+            Toggle("All day", isOn: $isAllDay)
+
+            OptionalDatePickerRow(
+                label: "Start date",
+                placeholder: "-/-/--",
+                isSet: $hasStartDate,
+                date: $startDate,
+                components: .date
+            )
+            if !isAllDay {
+                OptionalDatePickerRow(
+                    label: "Start time",
+                    placeholder: "--:--",
+                    isSet: $hasStartTime,
+                    date: $startTime,
+                    components: .hourAndMinute
                 )
+            }
+
+            OptionalDatePickerRow(
+                label: "End date",
+                placeholder: "-/-/--",
+                isSet: $hasEndDate,
+                date: $endDate,
+                components: .date
+            )
+            if !isAllDay {
+                OptionalDatePickerRow(
+                    label: "End time",
+                    placeholder: "--:--",
+                    isSet: $hasEndTime,
+                    date: $endTime,
+                    components: .hourAndMinute
+                )
+            }
+
+            if let error = timeValidationError {
+                Text(error)
+                    .font(.caption)
+                    .foregroundStyle(.red)
             }
         }
     }
@@ -378,7 +434,17 @@ struct CreateActivitySheet: View {
                     progressItemId: progressItemId,
                     title: trimmedTitle,
                     notes: cleanedNotes.isEmpty ? nil : cleanedNotes,
-                    timestamp: hasTime ? timestamp : nil,
+                    timestamp: combineDateAndTime(
+                        hasDate: hasStartDate, date: startDate,
+                        hasTime: hasStartTime, time: startTime,
+                        isAllDay: isAllDay
+                    ),
+                    endTimestamp: combineDateAndTime(
+                        hasDate: hasEndDate, date: endDate,
+                        hasTime: hasEndTime, time: endTime,
+                        isAllDay: isAllDay
+                    ),
+                    isAllDay: isAllDay && hasStartDate,
                     latitude: hasLocation ? latitude : nil,
                     longitude: hasLocation ? longitude : nil,
                     locationName: finalLocationName,
@@ -413,8 +479,15 @@ struct EditActivitySheet: View {
 
     @State private var title = ""
     @State private var notes = ""
-    @State private var hasTime = false
-    @State private var timestamp = Date()
+    @State private var isAllDay = false
+    @State private var hasStartDate = false
+    @State private var startDate = Date()
+    @State private var hasStartTime = false
+    @State private var startTime = Date()
+    @State private var hasEndDate = false
+    @State private var endDate = Date()
+    @State private var hasEndTime = false
+    @State private var endTime = Date()
     @State private var hasLocation = false
     @State private var latitude: Double?
     @State private var longitude: Double?
@@ -439,7 +512,20 @@ struct EditActivitySheet: View {
     private var canUpdate: Bool {
         // Collections are optional — activities with zero collections still
         // appear in the virtual "All activities" view.
-        !trimmedTitle.isEmpty && !isUpdating
+        !trimmedTitle.isEmpty && !isUpdating && timeValidationError == nil
+    }
+
+    /// `nil` when the time inputs are valid; otherwise a human-readable
+    /// reason the form is blocked. Mirrors the validation in
+    /// `CreateActivitySheet`.
+    private var timeValidationError: String? {
+        validateTimeRange(
+            isAllDay: isAllDay,
+            hasStartDate: hasStartDate, startDate: startDate,
+            hasStartTime: hasStartTime, startTime: startTime,
+            hasEndDate: hasEndDate, endDate: endDate,
+            hasEndTime: hasEndTime, endTime: endTime
+        )
     }
 
     var body: some View {
@@ -535,13 +621,46 @@ struct EditActivitySheet: View {
 
     private var timeSection: some View {
         Section("Time") {
-            Toggle("Add a date and time", isOn: $hasTime)
-            if hasTime {
-                DatePicker(
-                    "When",
-                    selection: $timestamp,
-                    displayedComponents: [.date, .hourAndMinute]
+            Toggle("All day", isOn: $isAllDay)
+
+            OptionalDatePickerRow(
+                label: "Start date",
+                placeholder: "-/-/--",
+                isSet: $hasStartDate,
+                date: $startDate,
+                components: .date
+            )
+            if !isAllDay {
+                OptionalDatePickerRow(
+                    label: "Start time",
+                    placeholder: "--:--",
+                    isSet: $hasStartTime,
+                    date: $startTime,
+                    components: .hourAndMinute
                 )
+            }
+
+            OptionalDatePickerRow(
+                label: "End date",
+                placeholder: "-/-/--",
+                isSet: $hasEndDate,
+                date: $endDate,
+                components: .date
+            )
+            if !isAllDay {
+                OptionalDatePickerRow(
+                    label: "End time",
+                    placeholder: "--:--",
+                    isSet: $hasEndTime,
+                    date: $endTime,
+                    components: .hourAndMinute
+                )
+            }
+
+            if let error = timeValidationError {
+                Text(error)
+                    .font(.caption)
+                    .foregroundStyle(.red)
             }
         }
     }
@@ -687,8 +806,24 @@ struct EditActivitySheet: View {
     private func prefill() {
         title = activity.title
         notes = activity.notes ?? ""
-        hasTime = activity.timestamp != nil
-        timestamp = activity.timestamp ?? Date()
+
+        // Time: split the stored timestamp(s) into the four independent
+        // "is set" + value pairs. Time portions are only marked as set
+        // when the activity isn't all-day.
+        isAllDay = activity.isAllDay
+        if let start = activity.timestamp {
+            hasStartDate = true
+            startDate = start
+            hasStartTime = !activity.isAllDay
+            startTime = start
+        }
+        if let end = activity.endTimestamp {
+            hasEndDate = true
+            endDate = end
+            hasEndTime = !activity.isAllDay
+            endTime = end
+        }
+
         hasLocation = activity.hasLocation
         latitude = activity.latitude
         longitude = activity.longitude
@@ -752,7 +887,19 @@ struct EditActivitySheet: View {
         // Since this form represents the full state every time, we always
         // pass .some(...) for every field.
         let notesParam: String?? = cleanedNotes.isEmpty ? .some(nil) : .some(cleanedNotes)
-        let timestampParam: Date?? = hasTime ? .some(timestamp) : .some(nil)
+        let computedStart = combineDateAndTime(
+            hasDate: hasStartDate, date: startDate,
+            hasTime: hasStartTime, time: startTime,
+            isAllDay: isAllDay
+        )
+        let computedEnd = combineDateAndTime(
+            hasDate: hasEndDate, date: endDate,
+            hasTime: hasEndTime, time: endTime,
+            isAllDay: isAllDay
+        )
+        let timestampParam: Date?? = .some(computedStart)
+        let endTimestampParam: Date?? = .some(computedEnd)
+        let isAllDayParam: Bool? = isAllDay && hasStartDate
         let latitudeParam: Double?? = hasLocation ? .some(latitude) : .some(nil)
         let longitudeParam: Double?? = hasLocation ? .some(longitude) : .some(nil)
         // Custom name wins; otherwise fall back to the resolved Apple Maps
@@ -779,6 +926,8 @@ struct EditActivitySheet: View {
                     title: trimmedTitle,
                     notes: notesParam,
                     timestamp: timestampParam,
+                    endTimestamp: endTimestampParam,
+                    isAllDay: isAllDayParam,
                     latitude: latitudeParam,
                     longitude: longitudeParam,
                     locationName: locationNameParam,
@@ -816,4 +965,101 @@ struct EditActivitySheet: View {
 
 #Preview {
     CreateActivitySheet(progressItemId: "test123")
+}
+
+// MARK: - Time helpers (shared by Create + Edit)
+
+/// A form row that shows a "set" `DatePicker` when filled and a tappable
+/// placeholder button when empty. Used for the four time fields so the
+/// editor renders every option up-front without a gating section toggle.
+private struct OptionalDatePickerRow: View {
+    let label: String
+    let placeholder: String
+    @Binding var isSet: Bool
+    @Binding var date: Date
+    let components: DatePickerComponents
+
+    var body: some View {
+        HStack {
+            Text(label)
+                .foregroundStyle(.primary)
+            Spacer()
+            if isSet {
+                DatePicker("", selection: $date, displayedComponents: components)
+                    .labelsHidden()
+                Button {
+                    isSet = false
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundStyle(.tertiary)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Clear \(label)")
+            } else {
+                Button {
+                    isSet = true
+                } label: {
+                    Text(placeholder)
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Add \(label)")
+            }
+        }
+    }
+}
+
+/// Combines an independently-set date and time pair into a single `Date`,
+/// honouring the all-day flag (forces midnight) and the case where only
+/// the date is set (also normalized to start-of-day).
+///
+/// Returns `nil` when no date is set — that's the editor's signal that
+/// this side of the time range is unset.
+private func combineDateAndTime(
+    hasDate: Bool,
+    date: Date,
+    hasTime: Bool,
+    time: Date,
+    isAllDay: Bool
+) -> Date? {
+    guard hasDate else { return nil }
+    let cal = Foundation.Calendar.current
+    if isAllDay || !hasTime {
+        return cal.startOfDay(for: date)
+    }
+    var components = cal.dateComponents([.year, .month, .day], from: date)
+    let timeComponents = cal.dateComponents([.hour, .minute], from: time)
+    components.hour = timeComponents.hour
+    components.minute = timeComponents.minute
+    return cal.date(from: components) ?? date
+}
+
+/// Validates the time inputs. Returns `nil` on success or an inline error
+/// string to surface beneath the time rows.
+private func validateTimeRange(
+    isAllDay: Bool,
+    hasStartDate: Bool, startDate: Date,
+    hasStartTime: Bool, startTime: Date,
+    hasEndDate: Bool, endDate: Date,
+    hasEndTime: Bool, endTime: Date
+) -> String? {
+    // End without start is invalid — Activity.endTimestamp without
+    // .timestamp is reserved for legacy/imported docs, not user input.
+    if hasEndDate, !hasStartDate {
+        return "Set a start date before adding an end."
+    }
+    let start = combineDateAndTime(
+        hasDate: hasStartDate, date: startDate,
+        hasTime: hasStartTime, time: startTime,
+        isAllDay: isAllDay
+    )
+    let end = combineDateAndTime(
+        hasDate: hasEndDate, date: endDate,
+        hasTime: hasEndTime, time: endTime,
+        isAllDay: isAllDay
+    )
+    if let start, let end, end <= start {
+        return "End must be after start."
+    }
+    return nil
 }

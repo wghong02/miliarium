@@ -285,12 +285,35 @@ Test scope tags:
 ### 5.2 Time dimension 🖼
 
 **Behavior**
-- Toggling "Add a date and time" reveals a DatePicker (date + time).
-- Toggling off hides the DatePicker — saved activity has no timestamp.
+- The Time section is **always visible** — there is no top-level toggle that gates it. Four rows are shown by default:
+  - **Start date** — placeholder `-/-/--` until filled, then a `DatePicker` + an "X" clear button.
+  - **Start time** — placeholder `--:--` until filled. Hidden when "All day" is on.
+  - **End date** — placeholder `-/-/--` until filled.
+  - **End time** — placeholder `--:--` until filled. Hidden when "All day" is on.
+- A single **"All day"** toggle sits at the top of the section. When enabled, time rows disappear and the saved `timestamp` / `endTimestamp` are normalized to start-of-day.
+- Date and time are independently settable — the user can set a date only (treated as start-of-day) or a date AND a time.
+- Tapping any placeholder marks that field as set and reveals the picker; tapping the X clears it back to the placeholder.
 
 **Expectations**
-- DatePicker is hidden when toggle is off.
-- The chosen time is preserved through other field edits within the sheet.
+- Activities with no date set save with `timestamp == nil` (no time dimension).
+- Activities with only a start date set save with `timestamp == startOfDay(date)`.
+- Activities with a start date + start time save with `timestamp` combining both.
+- Same rules for end. An end date may be set independently — the time portion defaults to midnight if no end time is added.
+- "All day" is persisted as `isAllDay: true` in Firestore; reads back as the original mode on Edit.
+- Inline red **"End must be after start."** locks the action button when both are set and `end <= start`.
+- Inline red **"Set a start date before adding an end."** locks the action button if the user tries to set only an end without a start.
+- On Edit, the sheet splits the stored `timestamp` and `endTimestamp` back into independent date+time pairs and marks each field as set. All-day activities mark only the date fields as set.
+
+**Display in Calendar daily list**
+- All-day single day: `"All day"`.
+- All-day cross-day: `"May 31 – Jun 2"`.
+- Timed no end: `"9:00 AM"`.
+- Timed same-day range: `"9:00 AM – 10:30 AM"`.
+- Timed cross-day range: `"May 31, 9:00 AM – Jun 1, 2:00 PM"`.
+
+**Edge cases**
+- Existing activities (pre-`isAllDay`) parse with `isAllDay == false` — `Firestore.Bool ?? false` is the fallback.
+- Removing all time data is a valid update — Firestore drops the `timestamp`, `endTimestamp`, and `isAllDay` fields on save.
 
 ### 5.3 Location dimension 🖼
 

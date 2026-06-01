@@ -36,6 +36,8 @@ class ActivityService {
         title: String,
         notes: String? = nil,
         timestamp: Date? = nil,
+        endTimestamp: Date? = nil,
+        isAllDay: Bool = false,
         latitude: Double? = nil,
         longitude: Double? = nil,
         locationName: String? = nil,
@@ -46,6 +48,8 @@ class ActivityService {
             title: title,
             notes: notes,
             timestamp: timestamp,
+            endTimestamp: endTimestamp,
+            isAllDay: isAllDay,
             latitude: latitude,
             longitude: longitude,
             locationName: locationName,
@@ -146,6 +150,8 @@ class ActivityService {
         title: String? = nil,
         notes: String?? = nil,
         timestamp: Date?? = nil,
+        endTimestamp: Date?? = nil,
+        isAllDay: Bool? = nil,
         latitude: Double?? = nil,
         longitude: Double?? = nil,
         locationName: String?? = nil,
@@ -158,6 +164,8 @@ class ActivityService {
         if let title { updated.title = title }
         if let notes { updated.notes = notes }
         if let timestamp { updated.timestamp = timestamp }
+        if let endTimestamp { updated.endTimestamp = endTimestamp }
+        if let isAllDay { updated.isAllDay = isAllDay }
         if let latitude { updated.latitude = latitude }
         if let longitude { updated.longitude = longitude }
         if let locationName { updated.locationName = locationName }
