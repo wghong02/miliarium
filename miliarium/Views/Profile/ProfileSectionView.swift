@@ -3,6 +3,7 @@ import FirebaseAuth
 
 struct ProfileSectionView: View {
     @Environment(AuthViewModel.self) private var auth
+    @Environment(OnboardingState.self) private var onboardingState
 
     @State private var appUser: AppUser?
     @State private var name = ""
@@ -25,6 +26,7 @@ struct ProfileSectionView: View {
             List {
                 accountSection
                 nameSection
+                helpSection
                 if let errorMessage {
                     Section {
                         Text(errorMessage)
@@ -103,6 +105,25 @@ struct ProfileSectionView: View {
                 Spacer()
                 CharacterCounter(count: name.count, limit: TextLimits.name)
             }
+        }
+    }
+
+    private var helpSection: some View {
+        Section {
+            Button {
+                onboardingState.resetOnboarding()
+            } label: {
+                HStack {
+                    Image(systemName: "questionmark.circle")
+                        .foregroundStyle(.blue)
+                    Text("Show tutorial again")
+                        .foregroundStyle(.primary)
+                }
+            }
+        } header: {
+            Text("Help")
+        } footer: {
+            Text("Resets the welcome sheet and the per-tab hint banners so they appear again.")
         }
     }
 

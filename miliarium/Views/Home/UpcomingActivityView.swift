@@ -32,7 +32,7 @@ struct UpcomingActivityView: View {
             HStack(spacing: 8) {
                 Image(systemName: "clock.fill")
                     .foregroundStyle(.blue)
-                Text("Upcoming activity")
+                Text("Upcoming activities")
                     .font(.headline)
                 Spacer()
                 if isLoading {

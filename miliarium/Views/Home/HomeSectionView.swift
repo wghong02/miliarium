@@ -5,20 +5,36 @@ struct HomeSectionView: View {
     @Environment(ProgressStore.self) private var progressStore
     @Environment(InvitationViewModel.self) private var invitationVM
     @Environment(AuthViewModel.self) private var authVM
+    @Environment(OnboardingState.self) private var onboardingState
 
     @State private var showCreateProgress = false
     @State private var showDeleteConfirmation = false
     @State private var showSendInvitation = false
     @State private var showEditSummary = false
+    @State private var showAddActivity = false
     @State private var progressToDelete: String?
     @State private var isDeleting = false
     @State private var deleteErrorMessage: String?
     @State private var currentUserId: String?
 
+    /// The current onboarding step, recomputed on every render from the
+    /// live counts the `OnboardingState` listeners maintain.
+    private var tutorialStep: TutorialStep {
+        onboardingState.currentStep(progressCount: progressStore.progresses.count)
+    }
+
     var body: some View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
+                    // Tutorial banner sits above everything else so it's
+                    // visible during the empty-progresses state too — that's
+                    // when the "create your first progress" step needs to
+                    // surface most.
+                    TutorialBanner(step: tutorialStep) {
+                        onboardingState.dismissTutorial()
+                    }
+
                     Group {
                         if progressStore.isLoading {
                             ProgressView()
@@ -40,6 +56,7 @@ struct HomeSectionView: View {
                     }
                 }
                 .padding(.horizontal)
+                .animation(.easeInOut(duration: 0.25), value: tutorialStep)
             }
             .navigationTitle("Home")
             .navigationBarTitleDisplayMode(.inline)
@@ -47,12 +64,30 @@ struct HomeSectionView: View {
                 ToolbarItem(placement: .topBarLeading) {
                     progressMenu
                 }
+                ToolbarItem(placement: .topBarTrailing) {
+                    // Only meaningful when a progress is selected — without
+                    // one we have no `progressItemId` to hand the sheet.
+                    if let id = progressStore.selectedProgressId,
+                       progressStore.progresses.contains(where: { $0.id == id }) {
+                        Button(action: { showAddActivity = true }) {
+                            Image(systemName: "plus.circle.fill")
+                        }
+                        .accessibilityLabel("Add activity")
+                    }
+                }
             }
             .onAppear {
                 currentUserId = authVM.user?.uid
+                onboardingState.updateForActiveProgress(progressStore.selectedProgressId)
             }
             .onChange(of: authVM.user?.uid) { _, newValue in
                 currentUserId = newValue
+            }
+            .onChange(of: progressStore.selectedProgressId) { _, newId in
+                // Re-target the onboarding listeners at the new progress
+                // so step detection (collectionCount / activityCount)
+                // reflects whichever progress is currently selected.
+                onboardingState.updateForActiveProgress(newId)
             }
             .sheet(isPresented: $showCreateProgress) {
                 CreateProgressSheet { title in
@@ -79,6 +114,14 @@ struct HomeSectionView: View {
                     ) {
                         showEditSummary = false
                     }
+                }
+            }
+            .sheet(isPresented: $showAddActivity) {
+                // Matches the Map tab's "+" button: no pre-filled fields.
+                // The Collections section's own "+" menu is unchanged and
+                // remains an alternate entry point for the same sheet.
+                if let id = progressStore.selectedProgressId {
+                    CreateActivitySheet(progressItemId: id)
                 }
             }
             .confirmationDialog(
@@ -169,11 +212,6 @@ struct HomeSectionView: View {
                 if !item.content.body.isEmpty {
                     Text(item.content.body)
                         .font(.body)
-                }
-                if item.content.summary.isEmpty && item.content.body.isEmpty {
-                    Text("No content yet. Edit this progress to add a summary or notes.")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
                 }
 
                 Spacer()

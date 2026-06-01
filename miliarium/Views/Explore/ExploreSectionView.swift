@@ -8,10 +8,12 @@ import FirebaseFirestore
 /// "add to collection" menu doesn't need to keep its own listener.
 struct ExploreSectionView: View {
     @Environment(ProgressStore.self) private var progressStore
+    @Environment(OnboardingState.self) private var onboardingState
 
     @State private var collections: [ActivityCollection] = []
     @State private var collectionsListener: ListenerRegistration?
     @State private var selectedCollectionId: String?
+    @State private var showMapHintSheet = false
 
     var body: some View {
         NavigationStack {
@@ -38,6 +40,20 @@ struct ExploreSectionView: View {
                     )
                 }
             }
+            // Modal hint sheet — slides up on first map visit. The
+            // `presentationBackgroundInteraction(.enabled)` keeps the map
+            // tappable behind the sheet at the small detent.
+            .sheet(isPresented: $showMapHintSheet, onDismiss: {
+                onboardingState.markMapHintSeen()
+            }) {
+                MapHintSheet {
+                    onboardingState.markMapHintSeen()
+                    showMapHintSheet = false
+                }
+                .presentationDetents([.fraction(0.35), .medium])
+                .presentationBackgroundInteraction(.enabled(upThrough: .fraction(0.35)))
+                .presentationDragIndicator(.visible)
+            }
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     collectionFilterMenu
@@ -47,6 +63,13 @@ struct ExploreSectionView: View {
                 if collectionsListener == nil,
                    let progressId = progressStore.selectedProgressId {
                     setUpCollectionsListener(progressId: progressId)
+                }
+                // Auto-present the modal hint on the first Map visit per
+                // device (or after the user resets onboarding from
+                // Profile). Re-appears do nothing because the flag is
+                // flipped in the sheet's onDismiss.
+                if !onboardingState.hasSeenMapHint {
+                    showMapHintSheet = true
                 }
             }
             .onDisappear {
@@ -101,5 +124,43 @@ struct ExploreSectionView: View {
     private func tearDownCollectionsListener() {
         collectionsListener?.remove()
         collectionsListener = nil
+    }
+}
+
+// MARK: - Map hint sheet
+
+/// Compact modal that explains the Map tab on first visit. Designed for a
+/// `~0.35` detent — large enough for the icon, headline, body, and CTA;
+/// small enough that the map remains visible (and interactive) behind it.
+private struct MapHintSheet: View {
+    let onDismiss: () -> Void
+
+    var body: some View {
+        VStack(spacing: 16) {
+            Image(systemName: "mappin.circle.fill")
+                .font(.system(size: 44))
+                .foregroundStyle(.blue)
+                .symbolRenderingMode(.hierarchical)
+
+            Text("Activities with a location")
+                .font(.title3.weight(.semibold))
+                .multilineTextAlignment(.center)
+
+            Text("Activities with a location show up as pins. Search the bar to drop a preview pin, or tap an existing pin to move it between collections, edit it, or delete it.")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+
+            Button(action: onDismiss) {
+                Text("Got it")
+                    .font(.headline)
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.large)
+        }
+        .padding(.horizontal, 24)
+        .padding(.vertical, 20)
+        .frame(maxWidth: .infinity)
     }
 }
