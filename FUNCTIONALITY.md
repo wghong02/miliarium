@@ -318,30 +318,38 @@ Test scope tags:
 ### 5.3 Location dimension 🖼
 
 **Behavior**
-- Toggling "Add a location" reveals: Apple Maps search, suggestion rows, "Use current location" button, custom name field, and a selected-location row.
-- The custom name field placeholder is **"Enter custom name"** — it is never autofilled.
-- The selected-location row shows the resolved Apple Maps name (e.g. "Eiffel Tower"), not coordinates.
-- An "X" button on the selected-location row clears the location entirely.
+- The Location section is **always visible** — no top-level toggle. Three input rows are shown by default:
+  - **Apple Maps search field** (with suggestion list) — empty placeholder until the user types.
+  - **"Use current location"** button.
+  - **Custom name** text field — placeholder "Enter custom name", never autofilled.
+- A fourth row, the **selected-location display**, appears only once `latitude` AND `longitude` are set. It shows the resolved Apple Maps name (or "Current location" for a GPS-fetched coord), and an "X" button to clear everything back to the empty state.
 
 **Expectations**
 - Typing in the search field shows up to N suggestions.
-- Tapping a suggestion replaces the selected-location row with that location's resolved name and clears the search field.
-- The custom name field remains empty after selecting a search result.
+- Tapping a suggestion fills `latitude`/`longitude`/`resolvedLocationName`, and the selected-location row appears.
 - "Use current location" triggers a permission prompt on first use; on success the selected-location row shows "Current location".
-- Clearing (X) removes the resolved name, coordinates, and any custom name.
+- Clearing (X) removes the resolved name, coordinates, and any custom name — the section returns to its empty state but stays visible.
+- An entered custom name takes precedence over the resolved name when the activity is saved.
+- Saving with no location data leaves all location fields nil in Firestore.
 
 **Edge cases**
 - If location permission is denied or unavailable, the error message surfaces inline (not crash).
-- An entered custom name takes precedence over the resolved name when the activity is saved.
+- Editing an existing activity with a location pre-fills the resolved name in the selected-location row; the custom name field starts empty so the user can override.
 
 ### 5.4 Completion dimension 🖼
 
 **Behavior**
-- "Track completion" toggle reveals a "Completed" toggle.
-- An activity without completion tracking has no checkbox shown elsewhere in the app.
+- The Completion section is **always visible** — no top-level toggle. It contains a single inline **menu picker** labelled "Status" with three options:
+  - **Not tracked** (default) — the activity is not completion-tracked. Saves as `isCompleted == nil`.
+  - **Pending** — the activity tracks completion but is not yet done. Saves as `false`.
+  - **Completed** — the activity is done. Saves as `true`.
+- The picker uses `.menu` style so the current choice is shown inline with a dropdown caret.
 
 **Expectations**
-- Toggling off "Track completion" hides "Completed" and the saved activity has no completion state.
+- New activities default to "Not tracked".
+- Picking "Pending" or "Completed" makes the activity show its check-circle icon in other UI (collection rows, map pins, calendar rows).
+- Switching back to "Not tracked" removes the icon and saves `isCompleted == nil`.
+- On Edit, the picker pre-fills with `CompletionChoice.from(activity.isCompleted)` — nil ⇒ "Not tracked", false ⇒ "Pending", true ⇒ "Completed".
 
 ### 5.5 Collection multi-select 🖼
 
@@ -783,10 +791,31 @@ All widgets ship inside the main app's `.ipa`. The user adds them once from the 
 **Behavior**
 - The Profile tab has a "Help" section containing a single row: **"Show tutorial again"** (blue `questionmark.circle` icon).
 - A footer beneath the row reads: "Resets the welcome sheet and the per-tab hint banners so they appear again."
-- Tapping the row clears all five onboarding `UserDefaults` flags: `hasSeenWelcome`, `hasDismissedTutorial`, `hasSeenCalendarHint`, `hasSeenMapHint`, `hasSeenActivityHint`.
+- Tapping the row clears all six onboarding `UserDefaults` flags: `hasSeenWelcome`, `hasDismissedTutorial`, `hasSeenCalendarHint`, `hasSeenMapHint`, `hasSeenActivityHint`, `hasSeenActivitySheetHint`.
 
 **Expectations**
 - The welcome sheet (§13.1) reappears immediately — `ContentView` observes the `hasSeenWelcome` flip and presents the sheet over the current tab.
 - The Home tab tutorial banner (§13.2) reappears the next time the user visits the Home tab (or immediately if they're already on it), starting from whichever step is currently incomplete (or staying hidden if all 3 steps are already done — resetting doesn't undo the user's real progress / collection / activity creation).
 - The Calendar, Map, and Activity tab hints (§13.3) reappear the next time the user visits each respective tab.
 - The action is a single tap — no confirmation alert, no destructive role — since it only changes UI flags and creates no risk of data loss.
+
+### 13.5 Activity sheet hint 🖼
+
+**Behavior**
+- The first time the user opens **Create Activity** OR **Edit Activity**, a small blue-tinted hint Section appears at the top of the form.
+- Title: **"Only the title is required"**. Body: *"Every other field is optional — tap any placeholder ("-/-/--", "--:--", "Enter custom name") to fill it in, or leave it empty. You can edit any of these later."*
+- A dismiss `xmark` on the right marks `hasSeenActivitySheetHint` in `UserDefaults` and animates the section out.
+
+**UI signals that fields are optional / required**
+- **Title** field's placeholder reads **"Title (required)"** — visible until the user types. The Create / Update button is disabled when the title is empty.
+- **Time** rows use dash placeholders (`-/-/--` for date, `--:--` for time). Tapping a placeholder marks the field as set and reveals a `DatePicker`. An X clears it back to the placeholder.
+- **Location** placeholders: the search field is empty, "Use current location" is just a button, custom name shows "Enter custom name". The selected-location row only appears once coordinates are set.
+- **Completion** defaults to a "Not tracked" menu choice — the alternative options ("Pending" / "Completed") are revealed via the picker.
+
+**Expectations**
+- The hint Section is shown once per device. Dismissing it (xmark) sets the flag; further opens of the sheet show the form without the hint.
+- The same flag (`hasSeenActivitySheetHint`) is shared between Create and Edit — dismissing in one suppresses both.
+- The flag is included in the "Show tutorial again" reset (§13.4) — resetting onboarding makes the hint reappear the next time either sheet is opened.
+
+**Edge cases**
+- Existing users (pre-feature) see the hint the next time they open either activity sheet, until they dismiss it.
