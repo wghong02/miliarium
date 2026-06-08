@@ -281,6 +281,7 @@ Test scope tags:
 - Collection selection is **optional**. Activities created with zero collections still appear in the "All activities" view (§4.8).
 - Tapping Create shows a spinner in the toolbar in place of the button.
 - On success, the sheet dismisses and the new activity is reflected in collection stats (after refresh) for any collections it was added to.
+- The activity document includes a `createdBy` field set to the current user's ID. This is used by the push notification Cloud Function (§14.2) to attribute the notification and exclude the creator from receiving it.
 
 ### 5.2 Time dimension 🖼
 
@@ -819,3 +820,87 @@ All widgets ship inside the main app's `.ipa`. The user adds them once from the 
 
 **Edge cases**
 - Existing users (pre-feature) see the hint the next time they open either activity sheet, until they dismiss it.
+
+---
+
+## 14. Push Notifications
+
+Push notifications are dispatched by Cloud Functions (Firebase Gen 2) hosted
+in the `miliariumBackend` repository. The iOS app registers for remote
+notifications, stores device tokens in Firestore, and receives push payloads
+via APNs. No in-app notification UI is defined — the system notification
+center handles display.
+
+### 14.1 Device token lifecycle
+
+**Behavior**
+- On sign-in (or app launch when already signed in), the app requests
+  notification permission from the user. If granted, iOS registers for
+  remote notifications and delivers an APNs device token.
+- The token is stored in Firestore at `users/{userId}/deviceTokens/{tokenHexString}`
+  with metadata: `token`, `userId`, `platform`, `appVersion`, `osVersion`,
+  `createdAt` (first write only), `lastSeenAt` (every sync).
+- On sign-out, the device's token document is deleted from the previous
+  user so they no longer receive pushes on this device.
+- Multiple devices per account are naturally supported — each device writes
+  its own token document.
+
+**Expectations**
+- A fresh sign-in on a new device creates a new token document.
+- Re-launching the app on the same device updates `lastSeenAt` and
+  `appVersion`/`osVersion` without overwriting `createdAt`.
+- Sign-out removes exactly one token document (this device), leaving other
+  devices unaffected.
+- If the user denies notification permission, no token is stored and the
+  app remains fully functional without push.
+
+**Edge cases**
+- If iOS delivers a token before the user has signed in, it is cached
+  in memory and synced to Firestore as soon as sign-in completes.
+- Stale or invalid tokens are cleaned up server-side by the Cloud
+  Functions after a failed send attempt (§14.2, §14.3).
+
+### 14.2 Invitation notification (Cloud Function: `onInvitationCreated`)
+
+**Behavior**
+- When an invitation document is created in `invitations/{invitationId}`,
+  a Cloud Function sends a push notification to the recipient.
+- The notification reads: **"[Sender name] invited you to collaborate on
+  '[progress title]'"**, where sender name is resolved from
+  `users/{fromUserId}` (`name` field, falling back to `email`, then
+  "Someone").
+
+**Expectations**
+- Only the recipient (`toUserId`) receives the notification.
+- The sender does not receive a notification about their own invitation.
+- The notification includes a data payload with `invitationId` and
+  `type: "invitation"` for potential deep linking.
+- If the recipient has multiple devices, all receive the notification.
+- If the recipient has no registered device tokens, the function exits
+  silently (no error).
+- Failed/invalid tokens are deleted from Firestore after a send failure
+  so subsequent notifications skip stale devices.
+
+### 14.3 Activity notification (Cloud Function: `onActivityCreated`)
+
+**Behavior**
+- When a new activity document is created at
+  `progressItems/{progressItemId}/activities/{activityId}`, a Cloud
+  Function sends a push notification to all other collaborators on that
+  progress.
+- The notification reads: **"[Creator name] added '[activity title]'"**,
+  where creator name is resolved from `users/{createdBy}` (`name` field,
+  falling back to `email`, then "Someone").
+- Collaborators are identified by querying the `progressLinks` collection
+  group for documents with `progressItemId` matching the activity's parent
+  progress.
+
+**Expectations**
+- The activity creator (`createdBy`) is excluded from the notification.
+- All other users with a `progressLinks` document for that progress
+  receive the notification.
+- The notification includes a data payload with `progressItemId`,
+  `activityId`, and `type: "activity"` for potential deep linking.
+- If no other collaborators exist (solo progress), the function exits
+  silently.
+- Failed/invalid tokens are cleaned up server-side after send failures.

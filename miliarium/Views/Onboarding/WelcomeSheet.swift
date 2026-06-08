@@ -56,8 +56,10 @@ struct WelcomeSheet: View {
             }
         }
         .padding(.horizontal)
-        .padding(.top, 12)
-        .frame(height: 32)
+        // Pushed down further so it clears the sheet's drag indicator and
+        // doesn't crowd the rounded corner of the modal.
+        .padding(.top, 32)
+        .frame(height: 52)
     }
 
     private var ctaButton: some View {
