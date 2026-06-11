@@ -281,6 +281,7 @@ Test scope tags:
 - Collection selection is **optional**. Activities created with zero collections still appear in the "All activities" view (§4.8).
 - Tapping Create shows a spinner in the toolbar in place of the button.
 - On success, the sheet dismisses and the new activity is reflected in collection stats (after refresh) for any collections it was added to.
+- The activity document includes a `createdBy` field set to the current user's ID. This is used by the push notification Cloud Function (§14.2) to attribute the notification and exclude the creator from receiving it.
 
 ### 5.2 Time dimension 🖼
 
@@ -376,6 +377,31 @@ Test scope tags:
 - Pre-filled state matches the persisted activity (title, notes, time, location, completion, collections).
 - Removing all collections then saving is allowed (activity becomes "unfiled").
 - Delete asks for confirmation and removes the activity from every list it appeared in.
+
+### 5.7 Media attachments 🖼
+
+**Behavior**
+- The Edit sheet (§5.6) shows a **Media** section listing every photo or video attached to the activity.
+- Media appears as a 3-column grid of square thumbnails, newest-first.
+- A **"Add Photo or Video"** button below the grid opens the system `PhotosPicker`. Up to 5 items can be selected per pick.
+- Each thumbnail can be tapped to open a fullscreen viewer (image scales to fit; video plays via `AVPlayer`).
+- Long-pressing a thumbnail reveals a Delete context-menu action; tapping Delete shows a confirmation alert before removal.
+- The grid is empty-state-aware: "No photos or videos yet. Tap the button below to add some."
+
+**Expectations**
+- Each upload writes:
+  - A binary file to Firebase Storage at `activities/{progressItemId}/{activityId}/{mediaId}.{ext}`.
+  - A metadata doc to `progressItems/{progressItemId}/activities/{activityId}/media/{mediaId}` with `type`, `storagePath`, `uploadedBy`, `uploadedAt`, and (where available) `sizeBytes`, `width`, `height`, `durationSeconds`.
+- Images are JPEG-compressed at 85% quality before upload.
+- Videos retain their original container (`.mov` / `.mp4`); duration and dimensions are probed locally and stored on the metadata doc.
+- The grid uses a live Firestore listener — uploads from another device on the same account appear without manual refresh.
+- The "Add Photo or Video" button is disabled while an upload batch is in flight; a progress indicator with "Uploading N of M…" appears beneath the grid.
+- Deleting a media item removes both the Storage file and the Firestore doc. The operation is idempotent — a missing Storage object is treated as success.
+
+**Edge cases**
+- If the user is signed out (no `uploadedBy`), the picker button is disabled.
+- Upload errors are surfaced inline beneath the picker button (red caption text) without dismissing the Edit sheet.
+- Deleting an activity entirely (via §5.6) triggers the `onActivityDeleted` Cloud Function (§14.4), which cascade-deletes every media file in Storage under the activity's prefix — so no orphan files linger.
 
 ---
 
@@ -542,12 +568,26 @@ Test scope tags:
 **Behavior**
 - The owner opens "Send Invitation" sheet from the Home tab and types a recipient email.
 - Lookup resolves the email to an existing user before sending.
+- Sends are **deduplicated** by `(fromUserId, toUserId, progressItemId)`. If a prior invitation exists for that tuple, the existing document is **reopened** rather than a new row being created — so a sender resending after a decline or revoke flips the same doc back to `pending`, not produces parallel rows.
 
 **Expectations**
 - The Send button is disabled when the email field is empty.
 - A success message appears for ~1.5 seconds, then the sheet auto-dismisses.
 - Sending to an email with no matching user surfaces "User with email X not found".
-- Sending a second pending invitation to the same recipient for the same progress surfaces "You already sent an invitation to this user for this progress."
+
+**Per-status behavior on resend (same sender → same recipient → same progress)**
+
+| Existing status | What happens on resend |
+|---|---|
+| `pending`  | No-op refresh — `updatedAt` and `progressItemTitle` are bumped; the recipient sees an update on the existing pending row. Success returned. |
+| `declined` | Reopen — status flips back to `pending`. Recipient's listener updates the existing row in place (no new arrival). Success returned. |
+| `revoked`  | Reopen — same as declined. |
+| `accepted` | Rejected — "This user has already accepted access to this progress." surfaces in the sheet. |
+
+**Edge cases**
+- Always exactly one invitation document per `(from, to, progress)` tuple after this change. Documents created before the dedupe behavior shipped may still have duplicates; the service picks the first match arbitrarily, so the others remain stale until cleaned up.
+- The doc ID is preserved across reopens, so any external references (push notifications, logs) keep matching.
+- `createdAt` is preserved across reopens for audit history — only `updatedAt` and `progressItemTitle` (and `status`) change.
 
 ### 8.2 Receive / accept / decline (recipient) 🖼
 
@@ -819,3 +859,108 @@ All widgets ship inside the main app's `.ipa`. The user adds them once from the 
 
 **Edge cases**
 - Existing users (pre-feature) see the hint the next time they open either activity sheet, until they dismiss it.
+
+---
+
+## 14. Push Notifications
+
+Push notifications are dispatched by Cloud Functions (Firebase Gen 2) hosted
+in the `miliariumBackend` repository. The iOS app registers for remote
+notifications, stores device tokens in Firestore, and receives push payloads
+via APNs. No in-app notification UI is defined — the system notification
+center handles display.
+
+### 14.1 Device token lifecycle
+
+**Behavior**
+- On sign-in (or app launch when already signed in), the app requests
+  notification permission from the user. If granted, iOS registers for
+  remote notifications and delivers an APNs device token.
+- The token is stored in Firestore at `users/{userId}/deviceTokens/{tokenHexString}`
+  with metadata: `token`, `userId`, `platform`, `appVersion`, `osVersion`,
+  `createdAt` (first write only), `lastSeenAt` (every sync).
+- On sign-out, the device's token document is deleted from the previous
+  user so they no longer receive pushes on this device.
+- Multiple devices per account are naturally supported — each device writes
+  its own token document.
+
+**Expectations**
+- A fresh sign-in on a new device creates a new token document.
+- Re-launching the app on the same device updates `lastSeenAt` and
+  `appVersion`/`osVersion` without overwriting `createdAt`.
+- Sign-out removes exactly one token document (this device), leaving other
+  devices unaffected.
+- If the user denies notification permission, no token is stored and the
+  app remains fully functional without push.
+
+**Edge cases**
+- If iOS delivers a token before the user has signed in, it is cached
+  in memory and synced to Firestore as soon as sign-in completes.
+- Stale or invalid tokens are cleaned up server-side by the Cloud
+  Functions after a failed send attempt (§14.2, §14.3).
+
+### 14.2 Invitation notification (Cloud Function: `onInvitationCreated`)
+
+**Behavior**
+- When an invitation document is created in `invitations/{invitationId}`,
+  a Cloud Function sends a push notification to the recipient.
+- The notification reads: **"[Sender name] invited you to collaborate on
+  '[progress title]'"**, where sender name is resolved from
+  `users/{fromUserId}` (`name` field, falling back to `email`, then
+  "Someone").
+
+**Expectations**
+- Only the recipient (`toUserId`) receives the notification.
+- The sender does not receive a notification about their own invitation.
+- The notification includes a data payload with `invitationId` and
+  `type: "invitation"` for potential deep linking.
+- If the recipient has multiple devices, all receive the notification.
+- If the recipient has no registered device tokens, the function exits
+  silently (no error).
+- Failed/invalid tokens are deleted from Firestore after a send failure
+  so subsequent notifications skip stale devices.
+
+### 14.3 Activity notification (Cloud Function: `onActivityCreated`)
+
+**Behavior**
+- When a new activity document is created at
+  `progressItems/{progressItemId}/activities/{activityId}`, a Cloud
+  Function sends a push notification to all other collaborators on that
+  progress.
+- The notification reads: **"[Creator name] added '[activity title]'"**,
+  where creator name is resolved from `users/{createdBy}` (`name` field,
+  falling back to `email`, then "Someone").
+- Collaborators are identified by querying the `progressLinks` collection
+  group for documents with `progressItemId` matching the activity's parent
+  progress.
+
+**Expectations**
+- The activity creator (`createdBy`) is excluded from the notification.
+- All other users with a `progressLinks` document for that progress
+  receive the notification.
+- The notification includes a data payload with `progressItemId`,
+  `activityId`, and `type: "activity"` for potential deep linking.
+- If no other collaborators exist (solo progress), the function exits
+  silently.
+- Failed/invalid tokens are cleaned up server-side after send failures.
+
+### 14.4 Media cleanup (Cloud Function: `onActivityDeleted`)
+
+**Behavior**
+- When an activity document is deleted at
+  `progressItems/{progressItemId}/activities/{activityId}`, a Cloud
+  Function cascade-deletes every related media artifact.
+- The function:
+  1. Deletes every doc in the activity's `media/` subcollection (batched
+     in groups of 500 to stay within Firestore's batch limit).
+  2. Lists every file under the Storage prefix
+     `activities/{progressItemId}/{activityId}/` and deletes each one.
+
+**Expectations**
+- No orphan files remain in Storage after an activity is deleted, even
+  for stragglers from interrupted uploads (the prefix-based delete
+  catches them).
+- The function is tolerant of partial state — if the media subcollection
+  is empty or the Storage prefix has no files, it exits quietly.
+- Individual file-delete failures are logged but don't abort the batch,
+  so a single missing object doesn't block cleanup of the rest.

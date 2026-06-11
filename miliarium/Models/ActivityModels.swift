@@ -39,6 +39,11 @@ struct Activity: Identifiable, Hashable, Sendable, Codable {
     /// IDs of the ActivityCollections this activity belongs to (many-to-many).
     var collectionIds: [String]
 
+    /// User ID of the person who created this activity. Used by Cloud
+    /// Functions to attribute push notifications and exclude the creator
+    /// from receiving their own notification.
+    var createdBy: String?
+
     var createdAt: Date
     var updatedAt: Date
 
@@ -56,6 +61,7 @@ struct Activity: Identifiable, Hashable, Sendable, Codable {
         locationName: String? = nil,
         isCompleted: Bool? = nil,
         collectionIds: [String] = [],
+        createdBy: String? = nil,
         createdAt: Date = Date(),
         updatedAt: Date = Date()
     ) {
@@ -70,6 +76,7 @@ struct Activity: Identifiable, Hashable, Sendable, Codable {
         self.locationName = locationName
         self.isCompleted = isCompleted
         self.collectionIds = collectionIds
+        self.createdBy = createdBy
         self.createdAt = createdAt
         self.updatedAt = updatedAt
     }
@@ -98,6 +105,7 @@ struct Activity: Identifiable, Hashable, Sendable, Codable {
             locationName: data["locationName"] as? String,
             isCompleted: data["isCompleted"] as? Bool,
             collectionIds: data["collectionIds"] as? [String] ?? [],
+            createdBy: data["createdBy"] as? String,
             createdAt: createdAt,
             updatedAt: updatedAt
         )
@@ -132,6 +140,9 @@ struct Activity: Identifiable, Hashable, Sendable, Codable {
         }
         if let isCompleted {
             map["isCompleted"] = isCompleted
+        }
+        if let createdBy, !createdBy.isEmpty {
+            map["createdBy"] = createdBy
         }
 
         return map

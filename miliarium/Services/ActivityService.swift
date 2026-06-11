@@ -42,7 +42,8 @@ class ActivityService {
         longitude: Double? = nil,
         locationName: String? = nil,
         isCompleted: Bool? = nil,
-        collectionIds: [String] = []
+        collectionIds: [String] = [],
+        createdBy: String? = nil
     ) async throws -> Activity {
         let activity = Activity(
             title: title,
@@ -54,7 +55,8 @@ class ActivityService {
             longitude: longitude,
             locationName: locationName,
             isCompleted: isCompleted,
-            collectionIds: collectionIds
+            collectionIds: collectionIds,
+            createdBy: createdBy
         )
 
         AppLogger.activity.debug("createActivity progressId=\(progressItemId) title=\(title) collections=\(collectionIds)")
