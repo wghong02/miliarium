@@ -568,12 +568,26 @@ Test scope tags:
 **Behavior**
 - The owner opens "Send Invitation" sheet from the Home tab and types a recipient email.
 - Lookup resolves the email to an existing user before sending.
+- Sends are **deduplicated** by `(fromUserId, toUserId, progressItemId)`. If a prior invitation exists for that tuple, the existing document is **reopened** rather than a new row being created — so a sender resending after a decline or revoke flips the same doc back to `pending`, not produces parallel rows.
 
 **Expectations**
 - The Send button is disabled when the email field is empty.
 - A success message appears for ~1.5 seconds, then the sheet auto-dismisses.
 - Sending to an email with no matching user surfaces "User with email X not found".
-- Sending a second pending invitation to the same recipient for the same progress surfaces "You already sent an invitation to this user for this progress."
+
+**Per-status behavior on resend (same sender → same recipient → same progress)**
+
+| Existing status | What happens on resend |
+|---|---|
+| `pending`  | No-op refresh — `updatedAt` and `progressItemTitle` are bumped; the recipient sees an update on the existing pending row. Success returned. |
+| `declined` | Reopen — status flips back to `pending`. Recipient's listener updates the existing row in place (no new arrival). Success returned. |
+| `revoked`  | Reopen — same as declined. |
+| `accepted` | Rejected — "This user has already accepted access to this progress." surfaces in the sheet. |
+
+**Edge cases**
+- Always exactly one invitation document per `(from, to, progress)` tuple after this change. Documents created before the dedupe behavior shipped may still have duplicates; the service picks the first match arbitrarily, so the others remain stale until cleaned up.
+- The doc ID is preserved across reopens, so any external references (push notifications, logs) keep matching.
+- `createdAt` is preserved across reopens for audit history — only `updatedAt` and `progressItemTitle` (and `status`) change.
 
 ### 8.2 Receive / accept / decline (recipient) 🖼
 

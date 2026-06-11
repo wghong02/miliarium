@@ -140,6 +140,25 @@ class InvitationService {
         }
     }
 
+    /// Sends an invitation for `progressItemId` from `fromUserId` to
+    /// `toUserId`. **Deduplicates** by reopening any existing row for the
+    /// same (sender, recipient, progress) tuple instead of creating a new
+    /// one — so resending after a decline/revoke flips the same doc back
+    /// to `.pending` rather than producing parallel rows.
+    ///
+    /// Per-status behavior when an existing row is found:
+    ///
+    /// | Existing status    | What happens                                            |
+    /// |--------------------|---------------------------------------------------------|
+    /// | `.pending`         | No-op refresh — `updatedAt` + `progressItemTitle` only. |
+    /// | `.declined`        | Reopen — status flips back to `.pending`.               |
+    /// | `.revoked`         | Reopen — status flips back to `.pending`.               |
+    /// | `.accepted`        | Throws — the recipient is already a collaborator.       |
+    ///
+    /// The query + write isn't transactional — two concurrent sends could
+    /// both miss the existing row and create two new ones. Acceptable for
+    /// the single-user-per-device case; a cleanup pass can dedupe later
+    /// if it ever matters.
     func sendInvitation(
         from fromUserId: String,
         to toUserId: String,
@@ -148,26 +167,45 @@ class InvitationService {
     ) async throws {
         AppLogger.invitation.debug("sendInvitation from=\(fromUserId) to=\(toUserId) progressId=\(progressItemId)")
         do {
-            // Reject if a *pending* invitation for the same (sender, receiver,
-            // progress) tuple already exists. Note: this is a read-then-write
-            // and not transactional — two concurrent sends could both pass the
-            // check. Acceptable for the single-user-per-device case.
+            // Look up ANY existing row for the (sender, recipient, progress)
+            // tuple — not just pending — so we can reopen declined/revoked
+            // rows and reject accepted ones with a clearer error.
             let existingSnapshot = try await invitationsRef()
                 .whereField("fromUserId", isEqualTo: fromUserId)
                 .whereField("toUserId", isEqualTo: toUserId)
                 .whereField("progressItemId", isEqualTo: progressItemId)
-                .whereField("status", isEqualTo: InvitationStatus.pending.rawValue)
                 .getDocuments()
 
-            if !existingSnapshot.documents.isEmpty {
-                AppLogger.invitation.error("sendInvitation rejected: duplicate pending invitation from=\(fromUserId) to=\(toUserId) progressId=\(progressItemId)")
-                throw NSError(
-                    domain: "InvitationError",
-                    code: 409,
-                    userInfo: [NSLocalizedDescriptionKey: "An invitation already exists for this progress item"]
-                )
+            if let existing = existingSnapshot.documents.first {
+                let currentStatus = existing.data()["status"] as? String
+
+                // Already-accepted recipient is a collaborator — re-inviting
+                // is a no-op semantically and probably indicates user
+                // confusion. Surface a clear error.
+                if currentStatus == InvitationStatus.accepted.rawValue {
+                    AppLogger.invitation.error("sendInvitation rejected: already accepted id=\(existing.documentID)")
+                    throw NSError(
+                        domain: "InvitationError",
+                        code: 409,
+                        userInfo: [NSLocalizedDescriptionKey: "This user has already accepted access to this progress."]
+                    )
+                }
+
+                // pending / declined / revoked: flip back to .pending and
+                // refresh the progress title (which may have been renamed
+                // since the original invitation). Same doc ID = recipient's
+                // listener sees an update on the existing row, not a new
+                // arrival alongside the old.
+                try await existing.reference.updateData([
+                    "status": InvitationStatus.pending.rawValue,
+                    "progressItemTitle": progressItemTitle,
+                    "updatedAt": FieldValue.serverTimestamp()
+                ])
+                AppLogger.invitation.debug("sendInvitation reopened id=\(existing.documentID) previousStatus=\(currentStatus ?? "?")")
+                return
             }
 
+            // Fresh send — no prior history for this tuple.
             let invitationId = UUID().uuidString
             let invitationRef = invitationsRef().document(invitationId)
 
@@ -185,7 +223,7 @@ class InvitationService {
             ]
 
             try await invitationRef.setData(data)
-            AppLogger.invitation.debug("sendInvitation succeeded id=\(invitationId)")
+            AppLogger.invitation.debug("sendInvitation created id=\(invitationId)")
         } catch {
             AppLogger.invitation.error("sendInvitation failed from=\(fromUserId) to=\(toUserId): \(error)")
             throw error
