@@ -12,6 +12,7 @@
 		114C0CBF2FA6A6F100C19478 /* FirebaseFirestore in Frameworks */ = {isa = PBXBuildFile; productRef = 114C0CBE2FA6A6F100C19478 /* FirebaseFirestore */; };
 		114C0CC12FA6A71C00C19478 /* GoogleService-Info.plist in Resources */ = {isa = PBXBuildFile; fileRef = 114C0CC02FA6A71C00C19478 /* GoogleService-Info.plist */; };
 		114C0CCA2FA6A6F100C19478 /* FirebaseCore in Frameworks */ = {isa = PBXBuildFile; productRef = 114C0CC92FA6A6F100C19478 /* FirebaseCore */; };
+		11F5ED6F2FD691D2002D524B /* FirebaseStorage in Frameworks */ = {isa = PBXBuildFile; productRef = 11F5ED6E2FD691D2002D524B /* FirebaseStorage */; };
 		11F90C682FC7D7E600E07097 /* WidgetKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 11F90C672FC7D7E600E07097 /* WidgetKit.framework */; };
 		11F90C6A2FC7D7E600E07097 /* SwiftUI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 11F90C692FC7D7E600E07097 /* SwiftUI.framework */; };
 		11F90C772FC7D7E800E07097 /* MiliariumWidgetExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 11F90C652FC7D7E600E07097 /* MiliariumWidgetExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
@@ -100,6 +101,7 @@
 				114C0CCA2FA6A6F100C19478 /* FirebaseCore in Frameworks */,
 				114C0CBB2FA6A6F100C19478 /* FirebaseAnalytics in Frameworks */,
 				114C0CBD2FA6A6F100C19478 /* FirebaseAuth in Frameworks */,
+				11F5ED6F2FD691D2002D524B /* FirebaseStorage in Frameworks */,
 				114C0CBF2FA6A6F100C19478 /* FirebaseFirestore in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -173,6 +175,7 @@
 				114C0CBA2FA6A6F100C19478 /* FirebaseAnalytics */,
 				114C0CBC2FA6A6F100C19478 /* FirebaseAuth */,
 				114C0CBE2FA6A6F100C19478 /* FirebaseFirestore */,
+				11F5ED6E2FD691D2002D524B /* FirebaseStorage */,
 			);
 			productName = miliarium;
 			productReference = 114C0CAB2FA6A4CA00C19478 /* miliarium.app */;
@@ -418,6 +421,7 @@
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "We need your location to show nearby progress tracking locations";
+				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "Used to attach photos and videos to your activities.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -452,6 +456,7 @@
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "We need your location to show nearby progress tracking locations";
+				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "Used to attach photos and videos to your activities.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -599,6 +604,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 114C0CB92FA6A6F100C19478 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
 			productName = FirebaseCore;
+		};
+		11F5ED6E2FD691D2002D524B /* FirebaseStorage */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 114C0CB92FA6A6F100C19478 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
+			productName = FirebaseStorage;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

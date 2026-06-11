@@ -378,6 +378,31 @@ Test scope tags:
 - Removing all collections then saving is allowed (activity becomes "unfiled").
 - Delete asks for confirmation and removes the activity from every list it appeared in.
 
+### 5.7 Media attachments 🖼
+
+**Behavior**
+- The Edit sheet (§5.6) shows a **Media** section listing every photo or video attached to the activity.
+- Media appears as a 3-column grid of square thumbnails, newest-first.
+- A **"Add Photo or Video"** button below the grid opens the system `PhotosPicker`. Up to 5 items can be selected per pick.
+- Each thumbnail can be tapped to open a fullscreen viewer (image scales to fit; video plays via `AVPlayer`).
+- Long-pressing a thumbnail reveals a Delete context-menu action; tapping Delete shows a confirmation alert before removal.
+- The grid is empty-state-aware: "No photos or videos yet. Tap the button below to add some."
+
+**Expectations**
+- Each upload writes:
+  - A binary file to Firebase Storage at `activities/{progressItemId}/{activityId}/{mediaId}.{ext}`.
+  - A metadata doc to `progressItems/{progressItemId}/activities/{activityId}/media/{mediaId}` with `type`, `storagePath`, `uploadedBy`, `uploadedAt`, and (where available) `sizeBytes`, `width`, `height`, `durationSeconds`.
+- Images are JPEG-compressed at 85% quality before upload.
+- Videos retain their original container (`.mov` / `.mp4`); duration and dimensions are probed locally and stored on the metadata doc.
+- The grid uses a live Firestore listener — uploads from another device on the same account appear without manual refresh.
+- The "Add Photo or Video" button is disabled while an upload batch is in flight; a progress indicator with "Uploading N of M…" appears beneath the grid.
+- Deleting a media item removes both the Storage file and the Firestore doc. The operation is idempotent — a missing Storage object is treated as success.
+
+**Edge cases**
+- If the user is signed out (no `uploadedBy`), the picker button is disabled.
+- Upload errors are surfaced inline beneath the picker button (red caption text) without dismissing the Edit sheet.
+- Deleting an activity entirely (via §5.6) triggers the `onActivityDeleted` Cloud Function (§14.4), which cascade-deletes every media file in Storage under the activity's prefix — so no orphan files linger.
+
 ---
 
 ## 6. Calendar tab
@@ -904,3 +929,24 @@ center handles display.
 - If no other collaborators exist (solo progress), the function exits
   silently.
 - Failed/invalid tokens are cleaned up server-side after send failures.
+
+### 14.4 Media cleanup (Cloud Function: `onActivityDeleted`)
+
+**Behavior**
+- When an activity document is deleted at
+  `progressItems/{progressItemId}/activities/{activityId}`, a Cloud
+  Function cascade-deletes every related media artifact.
+- The function:
+  1. Deletes every doc in the activity's `media/` subcollection (batched
+     in groups of 500 to stay within Firestore's batch limit).
+  2. Lists every file under the Storage prefix
+     `activities/{progressItemId}/{activityId}/` and deletes each one.
+
+**Expectations**
+- No orphan files remain in Storage after an activity is deleted, even
+  for stragglers from interrupted uploads (the prefix-based delete
+  catches them).
+- The function is tolerant of partial state — if the media subcollection
+  is empty or the Storage prefix has no files, it exits quietly.
+- Individual file-delete failures are logged but don't abort the batch,
+  so a single missing object doesn't block cleanup of the rest.

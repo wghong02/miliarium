@@ -520,6 +520,7 @@ struct CreateActivitySheet: View {
 struct EditActivitySheet: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(OnboardingState.self) private var onboardingState
+    @Environment(AuthViewModel.self) private var auth
 
     let activity: Activity
     let progressItemId: String
@@ -590,6 +591,11 @@ struct EditActivitySheet: View {
                 locationSection
                 completionSection
                 collectionsFormSection
+                ActivityMediaSection(
+                    progressItemId: progressItemId,
+                    activityId: activity.id,
+                    uploadedBy: auth.user?.uid
+                )
 
                 if let error = errorMessage {
                     Section {
