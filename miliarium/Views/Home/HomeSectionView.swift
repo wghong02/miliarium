@@ -87,6 +87,14 @@ struct HomeSectionView: View {
             .onAppear {
                 currentUserId = authVM.user?.uid
                 onboardingState.updateForActiveProgress(progressStore.selectedProgressId)
+                // If ProgressStore has already completed its initial load
+                // by the time this view appears (e.g. user re-navigated to
+                // Home after the data was fetched), mark initialized now
+                // so the tutorial banner's gate evaluates correctly on the
+                // very first render.
+                if !progressStore.isLoading && authVM.user != nil {
+                    onboardingState.markProgressesInitialized()
+                }
             }
             .onChange(of: authVM.user?.uid) { _, newValue in
                 currentUserId = newValue
@@ -96,6 +104,17 @@ struct HomeSectionView: View {
                 // so step detection (collectionCount / activityCount)
                 // reflects whichever progress is currently selected.
                 onboardingState.updateForActiveProgress(newId)
+            }
+            // Watch ProgressStore loading state so the tutorial banner
+            // doesn't flash during the brief window when `progresses` is
+            // still its default empty array. We only mark initialized
+            // when loading completes — at that point we've definitively
+            // heard back from Firestore, even if the user has zero
+            // progresses (in which case showing step 1 is correct).
+            .onChange(of: progressStore.isLoading) { oldValue, newValue in
+                if oldValue == true && newValue == false {
+                    onboardingState.markProgressesInitialized()
+                }
             }
             .sheet(isPresented: $showCreateProgress) {
                 CreateProgressSheet { title in

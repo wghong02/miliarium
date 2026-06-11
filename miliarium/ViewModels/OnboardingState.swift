@@ -54,6 +54,19 @@ final class OnboardingState {
     /// Live count of activities in the currently-active progress.
     private(set) var activityCount: Int = 0
 
+    /// Flips to `true` once `ProgressStore` has completed at least one
+    /// load for the signed-in user. The tutorial banner stays hidden
+    /// until this flag is true so it can't flash a stale "step 1" state
+    /// during app launch when `progresses` is still its default empty
+    /// array.
+    private(set) var hasInitializedProgresses: Bool = false
+    /// Flips to `true` when the per-progress collections listener has
+    /// delivered its first snapshot.
+    private(set) var hasInitializedCollections: Bool = false
+    /// Flips to `true` when the per-progress activities listener has
+    /// delivered its first snapshot.
+    private(set) var hasInitializedActivities: Bool = false
+
     @ObservationIgnored private var collectionsListener: ListenerRegistration?
     @ObservationIgnored private var activitiesListener: ListenerRegistration?
     @ObservationIgnored private var currentProgressId: String?
@@ -96,11 +109,32 @@ final class OnboardingState {
         hasSeenActivitySheetHint = false
     }
 
+    /// Mark the progresses listener as having delivered. Called by
+    /// `HomeSectionView` once `ProgressStore.isLoading` flips from true to
+    /// false (or when we've otherwise confirmed the user's progress set).
+    /// Idempotent.
+    func markProgressesInitialized() {
+        hasInitializedProgresses = true
+    }
+
     /// Returns the step the banner should display, given the current
     /// progress-set size and the live collection/activity counts.
+    ///
+    /// Returns `.done` (banner hidden) whenever the data isn't fully
+    /// loaded yet — this prevents the "tutorial flash" that occurs when
+    /// the view body is evaluated *before* any listener has delivered,
+    /// at which point `progressCount`, `collectionCount`, and
+    /// `activityCount` are all their default zeros and the step gate
+    /// would otherwise misread that as "tutorial state."
     func currentStep(progressCount: Int) -> TutorialStep {
         if hasDismissedTutorial { return .done }
+        // Don't show until ProgressStore has confirmed the count.
+        guard hasInitializedProgresses else { return .done }
         if progressCount == 0 { return .createProgress }
+        // Have at least one progress, but until the per-progress
+        // listeners deliver we can't tell empty from populated. Stay
+        // quiet rather than flashing step 2 or 3 incorrectly.
+        guard hasInitializedCollections, hasInitializedActivities else { return .done }
         if collectionCount == 0 { return .createCollection }
         if activityCount == 0 { return .createActivity }
         return .done
@@ -120,16 +154,20 @@ final class OnboardingState {
         tearDownListeners()
         collectionCount = 0
         activityCount = 0
+        hasInitializedCollections = false
+        hasInitializedActivities = false
         guard let progressId else { return }
 
         collectionsListener = activityCollectionService.setCollectionsListener(for: progressId) { [weak self] fetched in
             Task { @MainActor in
                 self?.collectionCount = fetched.count
+                self?.hasInitializedCollections = true
             }
         }
         activitiesListener = activityService.setActivitiesListener(for: progressId) { [weak self] fetched in
             Task { @MainActor in
                 self?.activityCount = fetched.count
+                self?.hasInitializedActivities = true
             }
         }
     }
