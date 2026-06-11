@@ -2,17 +2,24 @@ import Foundation
 import UIKit
 import UserNotifications
 import FirebaseFirestore
+import FirebaseMessaging
 internal import os
 
-/// Manages push-notification permission, APNS-token capture, and Firestore
+/// Manages push-notification permission, FCM-token capture, and Firestore
 /// persistence of the per-device token.
+///
+/// **Why FCM tokens, not raw APNS tokens** — the Cloud Functions backend
+/// dispatches pushes through Firebase Cloud Messaging, which requires its
+/// own registration tokens. The APNS token is exchanged by the FCM SDK on
+/// the client; we never store the raw APNS hex.
 ///
 /// **High-level flow**
 /// 1. App calls `requestPermission()` (typically right after sign-in).
 /// 2. If granted, the service triggers
 ///    `UIApplication.registerForRemoteNotifications()`.
 /// 3. iOS hands the APNS token to `MiliariumAppDelegate`, which forwards it
-///    via `didReceiveAPNSToken(_:currentUserId:)`.
+///    to FCM. FCM then calls back via `MessagingDelegate`, which routes
+///    into `didReceiveFCMToken(_:currentUserId:)`.
 /// 4. If a user is signed in, the service upserts the token to
 ///    `users/{uid}/deviceTokens/{token}` in Firestore.
 /// 5. On sign-out, `removeTokenFromFirestore(userId:)` deletes the doc.
@@ -20,15 +27,15 @@ internal import os
 /// **Storage shape** — one doc per token under each user so multiple
 /// devices per account are naturally supported:
 ///
-///     users/{uid}/deviceTokens/{tokenHexString}
+///     users/{uid}/deviceTokens/{fcmToken}
 ///       token, userId, platform, appVersion, osVersion,
 ///       createdAt (server, first write only), lastSeenAt (every sync)
 @MainActor
 final class NotificationService {
     private let db = Firestore.firestore()
 
-    /// Most recent APNS token received from iOS, in lowercase hex. `nil`
-    /// before iOS has delivered one (or after explicit reset).
+    /// Most recent FCM registration token. `nil` before FCM has delivered
+    /// one (typical at first launch before APNS exchange completes).
     private(set) var currentToken: String?
 
     // MARK: - Permission
@@ -53,19 +60,27 @@ final class NotificationService {
         }
     }
 
-    // MARK: - APNS callback path
+    // MARK: - FCM callback path
 
-    /// Called from `MiliariumAppDelegate`'s
-    /// `application(_:didRegisterForRemoteNotificationsWithDeviceToken:)`.
-    /// Caches the token; if a user is signed in, syncs to Firestore
-    /// immediately. If no user is signed in yet, the token sits in
-    /// `currentToken` until `syncTokenToFirestore(userId:)` is called by
-    /// the auth flow.
-    func didReceiveAPNSToken(_ token: String, currentUserId: String?) {
+    /// Called from `MiliariumAppDelegate`'s `MessagingDelegate` conformance
+    /// whenever FCM mints (or rotates) a registration token for this
+    /// install. Caches the token; if a user is signed in, syncs to
+    /// Firestore immediately. If no user is signed in yet, the token sits
+    /// in `currentToken` until `syncTokenToFirestore(userId:)` is called
+    /// by the auth flow.
+    func didReceiveFCMToken(_ token: String, currentUserId: String?) {
+        let previous = currentToken
         currentToken = token
-        AppLogger.notification.debug("didReceiveAPNSToken len=\(token.count) signedIn=\(currentUserId != nil)")
+        AppLogger.notification.debug("didReceiveFCMToken len=\(token.count) signedIn=\(currentUserId != nil)")
         guard let currentUserId else { return }
-        Task { await syncTokenToFirestore(userId: currentUserId) }
+        Task {
+            // If FCM rotated the token, delete the stale doc first so we
+            // don't leave dead tokens in Firestore racking up failed sends.
+            if let previous, previous != token {
+                await removeTokenFromFirestore(userId: currentUserId, token: previous)
+            }
+            await syncTokenToFirestore(userId: currentUserId)
+        }
     }
 
     // MARK: - Firestore upsert / delete
@@ -103,15 +118,21 @@ final class NotificationService {
     /// Removes this device's token doc from the given user. Call on
     /// sign-out so the previous user no longer receives pushes meant for
     /// them from this device. The local `currentToken` is preserved so
-    /// the next sign-in can re-attach it without waiting for APNS again.
+    /// the next sign-in can re-attach it without waiting for FCM again.
     func removeTokenFromFirestore(userId: String) async {
         guard let token = currentToken else {
             AppLogger.notification.debug("removeTokenFromFirestore skipped: no cached token")
             return
         }
+        await removeTokenFromFirestore(userId: userId, token: token)
+    }
+
+    /// Explicit-token variant used during FCM rotation to clean up the
+    /// previous (now-dead) token doc without disturbing `currentToken`.
+    func removeTokenFromFirestore(userId: String, token: String) async {
         do {
             try await tokenDocRef(userId: userId, token: token).delete()
-            AppLogger.notification.debug("removeTokenFromFirestore succeeded userId=\(userId)")
+            AppLogger.notification.debug("removeTokenFromFirestore succeeded userId=\(userId) tokenPrefix=\(token.prefix(8))")
         } catch {
             AppLogger.notification.error("removeTokenFromFirestore failed userId=\(userId): \(error.localizedDescription)")
         }
