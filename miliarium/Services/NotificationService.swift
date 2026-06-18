@@ -60,6 +60,21 @@ final class NotificationService {
         }
     }
 
+    // MARK: - Badge
+
+    /// Resets the app-icon badge (the red number) to zero. Called when the
+    /// app comes to the foreground so the count clears once the user has
+    /// opened the app. Uses the modern `setBadgeCount` API; the older
+    /// `UIApplication.applicationIconBadgeNumber` setter is deprecated.
+    func clearBadge() async {
+        do {
+            try await UNUserNotificationCenter.current().setBadgeCount(0)
+            AppLogger.notification.debug("clearBadge succeeded")
+        } catch {
+            AppLogger.notification.error("clearBadge failed: \(error.localizedDescription)")
+        }
+    }
+
     // MARK: - FCM callback path
 
     /// Called from `MiliariumAppDelegate`'s `MessagingDelegate` conformance

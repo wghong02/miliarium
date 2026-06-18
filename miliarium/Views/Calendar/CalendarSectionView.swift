@@ -11,6 +11,13 @@ struct CalendarSectionView: View {
     @State private var collections: [ActivityCollection] = []
     @State private var collectionsListener: ListenerRegistration?
     @State private var selectedCollectionId: String?
+    /// When `false`, activities with `isCompleted == true` are hidden
+    /// from both the month-grid dots and the daily list. Default off
+    /// so the calendar opens focused on outstanding work.
+    @State private var showCompleted = false
+    /// When `false`, activities whose timestamp is before start-of-today
+    /// are hidden. Default off so the calendar opens looking forward.
+    @State private var showPast = false
 
     var body: some View {
         NavigationStack {
@@ -40,7 +47,9 @@ struct CalendarSectionView: View {
                         CalendarView(
                             progressItemId: selectedId,
                             progressTitle: selectedItem.title,
-                            selectedCollectionId: selectedCollectionId
+                            selectedCollectionId: selectedCollectionId,
+                            showCompleted: showCompleted,
+                            showPast: showPast
                         )
                     } else {
                         ContentUnavailableView(
@@ -87,6 +96,9 @@ struct CalendarSectionView: View {
                     Button(collection.name) { selectedCollectionId = collection.id }
                 }
             }
+            Divider()
+            Toggle("Completed", isOn: $showCompleted)
+            Toggle("Past", isOn: $showPast)
         } label: {
             HStack(spacing: 4) {
                 Image(systemName: "line.3.horizontal.decrease.circle")
@@ -94,7 +106,7 @@ struct CalendarSectionView: View {
                     .font(.caption.weight(.semibold))
             }
         }
-        .accessibilityLabel("Filter by collection")
+        .accessibilityLabel("Filter")
     }
 
     // MARK: - Collections listener

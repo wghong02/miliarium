@@ -14,6 +14,11 @@ struct ExploreSectionView: View {
     @State private var collectionsListener: ListenerRegistration?
     @State private var selectedCollectionId: String?
     @State private var showMapHintSheet = false
+    /// When `false`, pins for activities marked complete are hidden.
+    @State private var showCompleted = false
+    /// When `false`, pins for activities whose timestamp is before
+    /// start-of-today are hidden. Untimed pins are unaffected.
+    @State private var showPast = false
 
     var body: some View {
         NavigationStack {
@@ -30,7 +35,9 @@ struct ExploreSectionView: View {
                         progressItemId: selectedId,
                         progressTitle: selectedItem.title,
                         collections: collections,
-                        selectedCollectionId: selectedCollectionId
+                        selectedCollectionId: selectedCollectionId,
+                        showCompleted: showCompleted,
+                        showPast: showPast
                     )
                 } else {
                     ContentUnavailableView(
@@ -97,6 +104,9 @@ struct ExploreSectionView: View {
                     Button(collection.name) { selectedCollectionId = collection.id }
                 }
             }
+            Divider()
+            Toggle("Completed", isOn: $showCompleted)
+            Toggle("Past", isOn: $showPast)
         } label: {
             HStack(spacing: 4) {
                 Image(systemName: "line.3.horizontal.decrease.circle")
@@ -104,7 +114,7 @@ struct ExploreSectionView: View {
                     .font(.caption.weight(.semibold))
             }
         }
-        .accessibilityLabel("Filter by collection")
+        .accessibilityLabel("Filter")
     }
 
     // MARK: - Collections listener

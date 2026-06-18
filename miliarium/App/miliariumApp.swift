@@ -21,6 +21,10 @@ struct MiliariumApp: App {
     /// `NotificationService` can persist the token.
     @UIApplicationDelegateAdaptor(MiliariumAppDelegate.self) private var appDelegate
 
+    /// Drives badge-clearing: when the scene returns to `.active` we reset
+    /// the app-icon badge so the red number disappears on app open.
+    @Environment(\.scenePhase) private var scenePhase
+
     var body: some Scene {
         WindowGroup {
             ContentView()
@@ -31,6 +35,10 @@ struct MiliariumApp: App {
                 .onAppear {
                     progressStore.updateUserId(auth.user?.uid)
                     invitationVM.setUserId(auth.user?.uid)
+                    // Clear the badge on cold launch. `.onChange(of: scenePhase)`
+                    // doesn't fire for the initial `.active` value, so handle
+                    // the launch case here; warm foregrounds go through onChange.
+                    Task { await notificationService.clearBadge() }
                     // App launched into a signed-in state (Firebase
                     // restored the session) — request push permission and
                     // sync any cached APNS token. No-op if the user is
@@ -67,6 +75,13 @@ struct MiliariumApp: App {
                 // can compare arrays for equality.
                 .onChange(of: progressStore.progresses.map(\.id)) { _, _ in
                     widgetSnapshotService.update(progresses: progressStore.progresses)
+                }
+                // Clear the app-icon badge each time the app returns to the
+                // foreground, so the red number resets once the user opens it.
+                .onChange(of: scenePhase) { _, newPhase in
+                    if newPhase == .active {
+                        Task { await notificationService.clearBadge() }
+                    }
                 }
         }
     }

@@ -440,19 +440,24 @@ Test scope tags:
 - Creating an activity with the default fields adds a dot to the selected day in the grid.
 - The user can still toggle off time, in which case the activity won't appear in the calendar afterward.
 
-### 6.4 Collection filter 🖼
+### 6.4 Filter menu 🖼
 
 **Behavior**
-- The top-left toolbar shows a "collection filter" menu. Default selection is **"All collections"** (no filter).
-- The menu lists every collection for the active progress, with "All collections" pinned at the top.
-- The menu's label is a constant icon (`line.3.horizontal.decrease.circle` + a small chevron). It does NOT change to reflect the selected collection — the current selection is shown inside the menu.
+- The top-left toolbar shows a single **filter menu** containing three independent filters:
+  1. **Collection picker** — "All collections" (default) + one row per collection of the active progress.
+  2. **Completed** checkbox — when checked, includes activities where `isCompleted == true`; when unchecked, hides them. Default unchecked.
+  3. **Past** checkbox — when checked, includes activities whose `timestamp` is before start-of-today; when unchecked, hides them. Default unchecked.
+- The menu's label is a constant icon (`line.3.horizontal.decrease.circle` + a small chevron). It does NOT change to reflect any filter state — the checkboxes' on/off appear inside the menu as native checkmarks.
 
 **Expectations**
-- When set to "All collections", both the month-grid dot indicators and the daily activities list include every timed activity for the active progress.
-- Selecting a specific collection hides dots and rows for activities not in that collection.
-- Switching to a different progress on the Home tab resets this filter to "All collections".
-- Deleting the currently-selected collection elsewhere resets this filter to "All collections" automatically (no stale selection).
-- The top-left label width is fixed regardless of collection name length.
+- All three filters compose. An activity must pass *every* enabled filter to render:
+  - Collection match (or "All collections" selected), AND
+  - `isCompleted != true` OR Completed checked, AND
+  - `timestamp >= startOfToday` OR `timestamp == nil` OR Past checked.
+- The dots on the month-grid and the rows in the daily list use the same filter set — they never disagree.
+- Switching to a different progress on the Home tab resets all three filters to their defaults ("All collections", Completed unchecked, Past unchecked).
+- Deleting the currently-selected collection elsewhere resets the collection picker to "All collections"; the two toggles are unaffected.
+- The top-left label width is fixed regardless of collection name length or toggle states.
 
 ---
 
@@ -544,20 +549,25 @@ Test scope tags:
 **Expectations**
 - Empty state disappears as soon as at least one pin exists or a search is in progress.
 
-### 7.7 Collection filter 🖼
+### 7.7 Filter menu 🖼
 
 **Behavior**
-- The top-left toolbar shows a "collection filter" menu. Default selection is **"All collections"** (no filter).
-- The menu lists every collection for the active progress, with "All collections" pinned at the top.
-- The menu's label is a constant icon (`line.3.horizontal.decrease.circle` + a small chevron) — same symbol as the Calendar tab's filter for consistency. It does NOT change to reflect the selected collection.
+- The top-left toolbar shows a single **filter menu** containing three independent filters — identical structure to the Calendar tab's filter (§6.4):
+  1. **Collection picker** — "All collections" (default) + one row per collection of the active progress.
+  2. **Show completed** toggle — hides pins for `isCompleted == true` activities when off (default off).
+  3. **Show past** toggle — hides pins for activities whose `timestamp` is before start-of-today when off (default off). Untimed activities (no `timestamp`) are always shown — `past` only applies to time-bound items.
+- The menu's label is a constant icon (`line.3.horizontal.decrease.circle` + a small chevron) — same symbol as the Calendar tab's filter for consistency.
 
 **Expectations**
-- When set to "All collections", every activity with a location is plotted.
-- Selecting a specific collection hides pins that don't belong to that collection.
-- The camera re-fits to the visible pins whenever the filter changes (so a small filtered set fills the screen).
-- Switching to a different progress on the Home tab resets this filter to "All collections".
-- Deleting the currently-selected collection elsewhere resets this filter to "All collections" automatically.
-- The top-left label width is fixed regardless of collection name length.
+- All three filters compose. A pin renders only when its activity passes every enabled filter:
+  - `hasLocation == true` (the listener already filters by this), AND
+  - Collection match (or "All collections" selected), AND
+  - `isCompleted != true` OR Completed checked, AND
+  - `timestamp >= startOfToday` OR `timestamp == nil` OR Past checked.
+- The camera re-fits to the visible pins whenever the collection filter changes; toggling completed/past does not currently re-fit (could be added if it becomes useful).
+- Switching to a different progress on the Home tab resets all three filters to their defaults.
+- Deleting the currently-selected collection elsewhere resets the collection picker to "All collections"; the two toggles are unaffected.
+- The top-left label width is fixed regardless of filter state.
 
 ---
 

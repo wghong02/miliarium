@@ -25,6 +25,12 @@ struct MapView: View {
     /// Active collection filter coming from the section view's toolbar
     /// picker. `nil` means show pins from every collection.
     let selectedCollectionId: String?
+    /// When `false`, pins for activities marked complete are hidden.
+    let showCompleted: Bool
+    /// When `false`, pins for activities whose timestamp is before
+    /// start-of-today are hidden. Untimed activities (no timestamp) are
+    /// always shown — `past` only applies to time-bound items.
+    let showPast: Bool
 
     @State private var activitiesWithLocation: [Activity] = []
     @State private var activitiesListener: ListenerRegistration?
@@ -45,11 +51,26 @@ struct MapView: View {
     @State private var currentLocation: CLLocationCoordinate2D?
     @State private var locationDenied = false
 
-    /// Activities passing both `hasLocation` (already filtered when the
-    /// listener writes) and the optional collection filter.
+    /// Activities passing every active filter from the toolbar:
+    /// `hasLocation` (already filtered when the listener writes),
+    /// collection membership, completed-state, and past-vs-future.
     private var filteredActivitiesWithLocation: [Activity] {
-        guard let selectedCollectionId else { return activitiesWithLocation }
-        return activitiesWithLocation.filter { $0.collectionIds.contains(selectedCollectionId) }
+        let startOfToday = Foundation.Calendar.current.startOfDay(for: Date())
+        return activitiesWithLocation.filter { activity in
+            if let selectedCollectionId,
+               !activity.collectionIds.contains(selectedCollectionId) {
+                return false
+            }
+            if !showCompleted, activity.isCompleted == true {
+                return false
+            }
+            // Past only applies to time-bound activities — untimed ones
+            // (no `timestamp`) are always shown regardless of this filter.
+            if !showPast, let ts = activity.timestamp, ts < startOfToday {
+                return false
+            }
+            return true
+        }
     }
 
     /// Coordinate of the next upcoming activity — one with a timestamp in
