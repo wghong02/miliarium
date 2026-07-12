@@ -97,16 +97,16 @@ struct ExploreSectionView: View {
 
     private var collectionFilterMenu: some View {
         Menu {
-            Button("All collections") { selectedCollectionId = nil }
-            if !collections.isEmpty {
-                Divider()
+            Section("Collection") {
+                collectionPickerButton(label: "All collections", id: nil)
                 ForEach(collections) { collection in
-                    Button(collection.name) { selectedCollectionId = collection.id }
+                    collectionPickerButton(label: collection.name, id: collection.id)
                 }
             }
-            Divider()
-            Toggle("Completed", isOn: $showCompleted)
-            Toggle("Past", isOn: $showPast)
+            Section("Show") {
+                Toggle("Completed", isOn: $showCompleted)
+                Toggle("Past", isOn: $showPast)
+            }
         } label: {
             HStack(spacing: 4) {
                 Image(systemName: "line.3.horizontal.decrease.circle")
@@ -115,6 +115,23 @@ struct ExploreSectionView: View {
             }
         }
         .accessibilityLabel("Filter")
+    }
+
+    /// Renders one collection-picker row. When this row's `id` matches the
+    /// currently-selected one, the row uses a filled `checkmark.circle.fill`
+    /// icon that picks up the menu's accent color (system blue) — that's
+    /// the "colored emphasis" for the active selection.
+    @ViewBuilder
+    private func collectionPickerButton(label: String, id: String?) -> some View {
+        Button {
+            selectedCollectionId = id
+        } label: {
+            if selectedCollectionId == id {
+                Label(label, systemImage: "checkmark.circle.fill")
+            } else {
+                Text(label)
+            }
+        }
     }
 
     // MARK: - Collections listener

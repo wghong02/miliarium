@@ -13,10 +13,11 @@ internal import os
 /// Each upload also writes a metadata doc at:
 ///   `progressItems/{progressItemId}/activities/{activityId}/media/{mediaId}`
 ///
-/// **Deletion**: removing a media item only deletes the Firestore doc and
-/// the Storage file. When an entire activity is deleted, the
-/// `onActivityDeleted` Cloud Function cascades-deletes the media
-/// subcollection + Storage files on the server.
+/// **Deletion**: the client deletes only the Firestore media doc. The
+/// `onMediaDeleted` Cloud Function reacts and removes the Storage binary
+/// server-side. When an entire activity is deleted, `onActivityDeleted`
+/// cascades-deletes the media subcollection + Storage files. Uploads still
+/// write to Storage directly from the client.
 final class MediaService {
     private let db = Firestore.firestore()
     private let storage = Storage.storage()
@@ -208,9 +209,11 @@ final class MediaService {
 
     // MARK: - Delete
 
-    /// Deletes a single media item: removes the Storage file AND the
-    /// Firestore doc. Tolerant of either side already being missing —
-    /// "not found" is treated as success so retries are idempotent.
+    /// Deletes a single media item by removing its Firestore doc. The
+    /// `onMediaDeleted` Cloud Function reacts to that deletion and removes
+    /// the corresponding Storage binary server-side, so the client never
+    /// touches Storage on delete. Deleting an already-missing doc is a
+    /// no-op, so retries are safe.
     func deleteMedia(
         _ media: ActivityMedia,
         progressItemId: String,
@@ -218,21 +221,14 @@ final class MediaService {
     ) async throws {
         AppLogger.media.debug("deleteMedia id=\(media.id) path=\(media.storagePath)")
 
-        // Storage delete — ignore not-found.
-        do {
-            try await storage.reference(withPath: media.storagePath).delete()
-        } catch let error as NSError where error.domain == StorageErrorDomain
-            && error.code == StorageErrorCode.objectNotFound.rawValue {
-            AppLogger.media.debug("deleteMedia: storage object already missing")
-        }
-
-        // Firestore delete — also idempotent.
         try await mediaCollection(
             progressItemId: progressItemId,
             activityId: activityId
         )
         .document(media.id)
         .delete()
+
+        AppLogger.media.debug("deleteMedia succeeded id=\(media.id)")
     }
 
     // MARK: - Helpers

@@ -443,11 +443,12 @@ Test scope tags:
 ### 6.4 Filter menu 🖼
 
 **Behavior**
-- The top-left toolbar shows a single **filter menu** containing three independent filters:
-  1. **Collection picker** — "All collections" (default) + one row per collection of the active progress.
-  2. **Completed** checkbox — when checked, includes activities where `isCompleted == true`; when unchecked, hides them. Default unchecked.
-  3. **Past** checkbox — when checked, includes activities whose `timestamp` is before start-of-today; when unchecked, hides them. Default unchecked.
-- The menu's label is a constant icon (`line.3.horizontal.decrease.circle` + a small chevron). It does NOT change to reflect any filter state — the checkboxes' on/off appear inside the menu as native checkmarks.
+- The top-left toolbar shows a single **filter menu** with two labeled sections, providing clear visual separation between collection selection and additional filters:
+  1. **"Collection" section** — picker rows: "All collections" (default) + one row per collection of the active progress. The currently-selected row is marked with a filled blue `checkmark.circle.fill` icon (colored emphasis), all other rows are plain text.
+  2. **"Show" section** — two checkboxes:
+     - **Completed** — when checked, includes activities where `isCompleted == true`; when unchecked, hides them. Default unchecked.
+     - **Past** — when checked, includes activities whose `timestamp` is before start-of-today; when unchecked, hides them. Default unchecked.
+- The menu's label is a constant icon (`line.3.horizontal.decrease.circle` + a small chevron). It does NOT change to reflect any filter state — the checkboxes' on/off appear inside the menu as native checkmarks, and the selected collection is identified by its filled blue icon.
 
 **Expectations**
 - All three filters compose. An activity must pass *every* enabled filter to render:
@@ -552,10 +553,11 @@ Test scope tags:
 ### 7.7 Filter menu 🖼
 
 **Behavior**
-- The top-left toolbar shows a single **filter menu** containing three independent filters — identical structure to the Calendar tab's filter (§6.4):
-  1. **Collection picker** — "All collections" (default) + one row per collection of the active progress.
-  2. **Show completed** toggle — hides pins for `isCompleted == true` activities when off (default off).
-  3. **Show past** toggle — hides pins for activities whose `timestamp` is before start-of-today when off (default off). Untimed activities (no `timestamp`) are always shown — `past` only applies to time-bound items.
+- The top-left toolbar shows a single **filter menu** with two labeled sections — identical structure to the Calendar tab's filter (§6.4):
+  1. **"Collection" section** — picker rows: "All collections" (default) + one row per collection of the active progress. The currently-selected row is marked with a filled blue `checkmark.circle.fill` icon, all other rows are plain text.
+  2. **"Show" section** — two checkboxes:
+     - **Completed** — when checked, includes pins for `isCompleted == true` activities; when unchecked, hides them. Default unchecked.
+     - **Past** — when checked, includes pins for activities whose `timestamp` is before start-of-today; when unchecked, hides them. Default unchecked. Untimed activities (no `timestamp`) are always shown — `past` only applies to time-bound items.
 - The menu's label is a constant icon (`line.3.horizontal.decrease.circle` + a small chevron) — same symbol as the Calendar tab's filter for consistency.
 
 **Expectations**
