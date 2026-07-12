@@ -147,6 +147,23 @@ Test scope tags:
 - A failed deletion surfaces an error alert (not a silent no-op).
 - Collaborators do NOT see the Delete button.
 
+### 3.6 Home tab states 🖼
+
+**Behavior**
+- The Home tab renders one of four mutually-exclusive body states depending on load / selection:
+  1. **Loading** — while `progressStore.isLoading`, a centered spinner is shown.
+  2. **No progresses** — an empty `ContentUnavailableView` ("No progress yet", `chart.line.uptrend.xyaxis` icon) with a "Create progress" bordered-prominent button and copy "Open the Progress menu above or tap below to create one."
+  3. **No selection** — when progresses exist but none is selected, a "Choose a progress" placeholder (`chevron.down.circle` icon, "Pick one from the menu above.").
+  4. **Content** — the selected progress's title, summary/body, Upcoming activities (§3.4), Collections (§4.1), and owner-only Sharing + Delete (§3.5).
+- The top-left progress menu adapts: with **zero progresses** it shows only a "Create progress…" button (no `Picker`); with **one or more** it shows the `Picker` of titles + a divider + "Create progress…".
+- The top-right toolbar shows a `doc.badge.plus` "Add activity" button **only** when a progress is selected (§5.1).
+
+**Expectations**
+- Exactly one of the four body states is visible at a time.
+- The "Create progress" button in the empty state and the "Create progress…" menu item open the same Create Progress sheet (§3.1).
+- The top-right "Add activity" button is absent in the loading, no-progress, and no-selection states.
+- The title/summary block, Upcoming section, and Collections section only render in the Content state.
+
 ---
 
 ## 4. Collections

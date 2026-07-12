@@ -20,6 +20,20 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
+		11114CDD30032DCD002866F7 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 114C0CA32FA6A4CA00C19478 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 114C0CAA2FA6A4CA00C19478;
+			remoteInfo = miliarium;
+		};
+		11114CF230032DFD002866F7 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 114C0CA32FA6A4CA00C19478 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 114C0CAA2FA6A4CA00C19478;
+			remoteInfo = miliarium;
+		};
 		11F90C752FC7D7E800E07097 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
 			containerPortal = 114C0CA32FA6A4CA00C19478 /* Project object */;
@@ -44,6 +58,8 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		11114CD730032DCD002866F7 /* miliariumUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = miliariumUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		11114CEC30032DFD002866F7 /* miliariumFunctionalityTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = miliariumFunctionalityTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		114C0CAB2FA6A4CA00C19478 /* miliarium.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = miliarium.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		114C0CC02FA6A71C00C19478 /* GoogleService-Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = "GoogleService-Info.plist"; sourceTree = "<group>"; };
 		11F90C652FC7D7E600E07097 /* MiliariumWidgetExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = MiliariumWidgetExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -71,6 +87,16 @@
 /* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
+		11114CD830032DCD002866F7 /* miliariumUITests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = miliariumUITests;
+			sourceTree = "<group>";
+		};
+		11114CED30032DFD002866F7 /* miliariumFunctionalityTests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = miliariumFunctionalityTests;
+			sourceTree = "<group>";
+		};
 		114C0CAD2FA6A4CA00C19478 /* miliarium */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			path = miliarium;
@@ -95,6 +121,20 @@
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
+		11114CD430032DCD002866F7 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		11114CE930032DFD002866F7 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		114C0CA82FA6A4CA00C19478 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
@@ -125,6 +165,8 @@
 			children = (
 				114C0CAD2FA6A4CA00C19478 /* miliarium */,
 				11F90C6B2FC7D7E600E07097 /* MiliariumWidget */,
+				11114CD830032DCD002866F7 /* miliariumUITests */,
+				11114CED30032DFD002866F7 /* miliariumFunctionalityTests */,
 				11F90C662FC7D7E600E07097 /* Frameworks */,
 				114C0CAC2FA6A4CA00C19478 /* Products */,
 				114C0CC02FA6A71C00C19478 /* GoogleService-Info.plist */,
@@ -137,6 +179,8 @@
 			children = (
 				114C0CAB2FA6A4CA00C19478 /* miliarium.app */,
 				11F90C652FC7D7E600E07097 /* MiliariumWidgetExtension.appex */,
+				11114CD730032DCD002866F7 /* miliariumUITests.xctest */,
+				11114CEC30032DFD002866F7 /* miliariumFunctionalityTests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -153,6 +197,52 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
+		11114CD630032DCD002866F7 /* miliariumUITests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 11114CE130032DCD002866F7 /* Build configuration list for PBXNativeTarget "miliariumUITests" */;
+			buildPhases = (
+				11114CD330032DCD002866F7 /* Sources */,
+				11114CD430032DCD002866F7 /* Frameworks */,
+				11114CD530032DCD002866F7 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				11114CDE30032DCD002866F7 /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				11114CD830032DCD002866F7 /* miliariumUITests */,
+			);
+			name = miliariumUITests;
+			packageProductDependencies = (
+			);
+			productName = miliariumUITests;
+			productReference = 11114CD730032DCD002866F7 /* miliariumUITests.xctest */;
+			productType = "com.apple.product-type.bundle.ui-testing";
+		};
+		11114CEB30032DFD002866F7 /* miliariumFunctionalityTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 11114CF430032DFD002866F7 /* Build configuration list for PBXNativeTarget "miliariumFunctionalityTests" */;
+			buildPhases = (
+				11114CE830032DFD002866F7 /* Sources */,
+				11114CE930032DFD002866F7 /* Frameworks */,
+				11114CEA30032DFD002866F7 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				11114CF330032DFD002866F7 /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				11114CED30032DFD002866F7 /* miliariumFunctionalityTests */,
+			);
+			name = miliariumFunctionalityTests;
+			packageProductDependencies = (
+			);
+			productName = miliariumFunctionalityTests;
+			productReference = 11114CEC30032DFD002866F7 /* miliariumFunctionalityTests.xctest */;
+			productType = "com.apple.product-type.bundle.ui-testing";
+		};
 		114C0CAA2FA6A4CA00C19478 /* miliarium */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = 114C0CB62FA6A4CC00C19478 /* Build configuration list for PBXNativeTarget "miliarium" */;
@@ -216,6 +306,14 @@
 				LastSwiftUpdateCheck = 2640;
 				LastUpgradeCheck = 2640;
 				TargetAttributes = {
+					11114CD630032DCD002866F7 = {
+						CreatedOnToolsVersion = 26.4.1;
+						TestTargetID = 114C0CAA2FA6A4CA00C19478;
+					};
+					11114CEB30032DFD002866F7 = {
+						CreatedOnToolsVersion = 26.4.1;
+						TestTargetID = 114C0CAA2FA6A4CA00C19478;
+					};
 					114C0CAA2FA6A4CA00C19478 = {
 						CreatedOnToolsVersion = 26.4.1;
 					};
@@ -243,11 +341,27 @@
 			targets = (
 				114C0CAA2FA6A4CA00C19478 /* miliarium */,
 				11F90C642FC7D7E600E07097 /* MiliariumWidgetExtension */,
+				11114CD630032DCD002866F7 /* miliariumUITests */,
+				11114CEB30032DFD002866F7 /* miliariumFunctionalityTests */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
+		11114CD530032DCD002866F7 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		11114CEA30032DFD002866F7 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		114C0CA92FA6A4CA00C19478 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -266,6 +380,20 @@
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
+		11114CD330032DCD002866F7 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		11114CE830032DFD002866F7 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		114C0CA72FA6A4CA00C19478 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -283,6 +411,16 @@
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
+		11114CDE30032DCD002866F7 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 114C0CAA2FA6A4CA00C19478 /* miliarium */;
+			targetProxy = 11114CDD30032DCD002866F7 /* PBXContainerItemProxy */;
+		};
+		11114CF330032DFD002866F7 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 114C0CAA2FA6A4CA00C19478 /* miliarium */;
+			targetProxy = 11114CF230032DFD002866F7 /* PBXContainerItemProxy */;
+		};
 		11F90C762FC7D7E800E07097 /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
 			target = 11F90C642FC7D7E600E07097 /* MiliariumWidgetExtension */;
@@ -291,6 +429,86 @@
 /* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
+		11114CDF30032DCD002866F7 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = LDS2F8RM9Y;
+				GENERATE_INFOPLIST_FILE = YES;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = miliarium.miliariumUITests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = miliarium;
+			};
+			name = Debug;
+		};
+		11114CE030032DCD002866F7 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = LDS2F8RM9Y;
+				GENERATE_INFOPLIST_FILE = YES;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = miliarium.miliariumUITests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = miliarium;
+			};
+			name = Release;
+		};
+		11114CF530032DFD002866F7 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = LDS2F8RM9Y;
+				GENERATE_INFOPLIST_FILE = YES;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = miliarium.miliariumFunctionalityTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = miliarium;
+			};
+			name = Debug;
+		};
+		11114CF630032DFD002866F7 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = LDS2F8RM9Y;
+				GENERATE_INFOPLIST_FILE = YES;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = miliarium.miliariumFunctionalityTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = miliarium;
+			};
+			name = Release;
+		};
 		114C0CB42FA6A4CC00C19478 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -547,6 +765,24 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
+		11114CE130032DCD002866F7 /* Build configuration list for PBXNativeTarget "miliariumUITests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				11114CDF30032DCD002866F7 /* Debug */,
+				11114CE030032DCD002866F7 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		11114CF430032DFD002866F7 /* Build configuration list for PBXNativeTarget "miliariumFunctionalityTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				11114CF530032DFD002866F7 /* Debug */,
+				11114CF630032DFD002866F7 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
 		114C0CA62FA6A4CA00C19478 /* Build configuration list for PBXProject "miliarium" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (

@@ -29,6 +29,30 @@
       selectedLauncherIdentifier = "Xcode.DebuggerFoundation.Launcher.LLDB"
       shouldUseLaunchSchemeArgsEnv = "YES"
       shouldAutocreateTestPlan = "YES">
+      <Testables>
+         <TestableReference
+            skipped = "NO"
+            parallelizable = "YES">
+            <BuildableReference
+               BuildableIdentifier = "primary"
+               BlueprintIdentifier = "11114CD630032DCD002866F7"
+               BuildableName = "miliariumUITests.xctest"
+               BlueprintName = "miliariumUITests"
+               ReferencedContainer = "container:miliarium.xcodeproj">
+            </BuildableReference>
+         </TestableReference>
+         <TestableReference
+            skipped = "NO"
+            parallelizable = "YES">
+            <BuildableReference
+               BuildableIdentifier = "primary"
+               BlueprintIdentifier = "11114CEB30032DFD002866F7"
+               BuildableName = "miliariumFunctionalityTests.xctest"
+               BlueprintName = "miliariumFunctionalityTests"
+               ReferencedContainer = "container:miliarium.xcodeproj">
+            </BuildableReference>
+         </TestableReference>
+      </Testables>
    </TestAction>
    <LaunchAction
       buildConfiguration = "Debug"
