@@ -29,6 +29,13 @@ final class AuthViewModel {
     private let authListener = FirebaseAuthStateListener()
 
     init() {
+        // UI-test hook: start every launch signed out so auth flows are
+        // deterministic and order-independent (Firebase otherwise persists
+        // the session to the keychain across launches). Only active when the
+        // `-uitest-reset-auth` launch argument is present.
+        if ProcessInfo.processInfo.arguments.contains("-uitest-reset-auth") {
+            try? Auth.auth().signOut()
+        }
         user = Auth.auth().currentUser
         authListener.start { [weak self] user in
             Task { @MainActor [weak self] in

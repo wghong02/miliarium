@@ -20,6 +20,9 @@ build/
 # Firebase (optional—keep this private)
 GoogleService-Info.plist
 
+# UI test credentials (keep private; copy from TestSecrets.example.json)
+miliariumUITests/TestSecrets.json
+
 # macOS
 .AppleDouble
 .LSOverride

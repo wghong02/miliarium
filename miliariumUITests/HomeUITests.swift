@@ -2,32 +2,25 @@ import XCTest
 
 /// UI tests for the Home tab (FUNCTIONALITY.md §3).
 ///
-/// The app gates all tabs behind Firebase auth, and this suite runs without
-/// a mocked auth layer or a seeded Firestore. So the tests split into two
-/// tiers:
+/// `setUp` launches with `-uitest-reset-auth` (clean signed-out start) then
+/// signs in with the shared `TestAccount`, so every test here runs against a
+/// real authenticated session. These tests require network connectivity.
 ///
-/// 1. **State-agnostic** — assertions that hold whether or not a session is
-///    restored (app launches, reaches a known first screen, tab bar shape).
-/// 2. **Authenticated-only** — Home-specific assertions guarded by
-///    `isSignedIn`. When no session is present they `XCTSkip`, so they read
-///    as skipped rather than failing in CI.
-///
-/// Flows that mutate data (create / delete progress) are left as documented
-/// skipped stubs — they need a seeded test account or a launch-argument
-/// auth bypass to run deterministically. Wire that up (e.g. honor the
-/// `-uitesting` launch argument in the app to inject a fake auth state)
-/// and the stubs can be filled in.
+/// Read-only assertions (tab bar shape, progress menu, empty-vs-content)
+/// run directly. Data-mutating flows (create / delete progress) are left as
+/// stubs: create-progress needs self-cleanup to avoid polluting the shared
+/// account, and delete-owner-only needs a second (collaborator) account.
 final class HomeUITests: XCTestCase {
 
     private var app: XCUIApplication!
 
     override func setUpWithError() throws {
         continueAfterFailure = false
+        // Skips the whole suite when TestSecrets.json is absent.
+        let creds = try requireTestCredentials()
         app = XCUIApplication()
-        // A hook the app can honor later to reset onboarding / inject a
-        // deterministic auth state for UI testing. Harmless if ignored.
-        app.launchArguments += ["-uitesting"]
-        app.launch()
+        app.launchForUITesting()
+        app.signIn(with: creds)   // fails the test if sign-in doesn't land
     }
 
     override func tearDownWithError() throws {
@@ -36,52 +29,14 @@ final class HomeUITests: XCTestCase {
 
     // MARK: - Helpers
 
-    /// True when a tab bar is present, i.e. the user is past the login gate.
-    private var isSignedIn: Bool {
-        app.tabBars.firstMatch.waitForExistence(timeout: 10)
-    }
-
-    /// Brings the Home tab to the front. Precondition: signed in.
     private func goToHome() {
         let homeTab = app.tabBars.buttons["Home"]
         if homeTab.exists { homeTab.tap() }
     }
 
-    private func skipUnlessSignedIn() throws {
-        try XCTSkipUnless(
-            isSignedIn,
-            "No authenticated session — Home-specific UI assertions require a signed-in state."
-        )
-    }
+    // MARK: - Tab bar
 
-    // MARK: - Tier 1: state-agnostic
-
-    func testAppLaunchesToKnownFirstScreen() {
-        // Either the login screen ("Welcome") or the authed tab bar must
-        // appear promptly. Anything else means a launch hang / crash.
-        let welcome = app.navigationBars["Welcome"]
-        let tabBar = app.tabBars.firstMatch
-        let reachedKnownState = welcome.waitForExistence(timeout: 10)
-            || tabBar.waitForExistence(timeout: 10)
-        XCTAssertTrue(reachedKnownState, "App did not reach login or tab bar within 10s")
-    }
-
-    func testLoginScreenShapeWhenSignedOut() throws {
-        try XCTSkipIf(isSignedIn, "Session restored — login screen not shown.")
-        XCTAssertTrue(app.navigationBars["Welcome"].exists)
-        XCTAssertTrue(app.textFields["Email"].exists)
-        XCTAssertTrue(app.secureTextFields["Password"].exists)
-        // Note: the action button and the mode segmented control both carry
-        // the text "Sign in", so `buttons["Sign in"]` is ambiguous. A stable
-        // accessibilityIdentifier on the action button would let us assert
-        // its disabled-until-filled state directly; until then we only
-        // assert the form's structural presence.
-    }
-
-    // MARK: - Tier 2: authenticated-only
-
-    func testTabBarHasFiveTabs() throws {
-        try skipUnlessSignedIn()
+    func testTabBarHasFiveTabs() {
         for label in ["Home", "Calendar", "Map", "Activity", "Profile"] {
             XCTAssertTrue(
                 app.tabBars.buttons[label].exists,
@@ -90,8 +45,9 @@ final class HomeUITests: XCTestCase {
         }
     }
 
-    func testHomeShowsProgressMenu() throws {
-        try skipUnlessSignedIn()
+    // MARK: - §3.2 / §3.6 progress menu
+
+    func testHomeShowsProgressMenu() {
         goToHome()
         XCTAssertTrue(app.navigationBars["Home"].waitForExistence(timeout: 5))
         // The top-left progress menu is always present on Home (its label is
@@ -102,8 +58,9 @@ final class HomeUITests: XCTestCase {
         )
     }
 
-    func testHomeShowsEitherEmptyStateOrContent() throws {
-        try skipUnlessSignedIn()
+    // MARK: - §3.6 body states
+
+    func testHomeShowsEitherEmptyStateOrContent() {
         goToHome()
         _ = app.navigationBars["Home"].waitForExistence(timeout: 5)
 
@@ -111,7 +68,7 @@ final class HomeUITests: XCTestCase {
         // the "Add activity" toolbar button). Exactly one should hold.
         let emptyState = app.staticTexts["No progress yet"]
         let addActivity = app.buttons["Add activity"]
-        let sawEmpty = emptyState.waitForExistence(timeout: 3)
+        let sawEmpty = emptyState.waitForExistence(timeout: 5)
         let sawContent = addActivity.exists
 
         XCTAssertTrue(
@@ -124,39 +81,40 @@ final class HomeUITests: XCTestCase {
         )
     }
 
-    func testAddActivityButtonHiddenInEmptyState() throws {
-        try skipUnlessSignedIn()
+    func testAddActivityButtonVisibilityMatchesSelection() throws {
         goToHome()
         _ = app.navigationBars["Home"].waitForExistence(timeout: 5)
-        // Per §3.6 / §5.1, the top-right "Add activity" button only appears
-        // when a progress is selected. If we're in the empty state, it must
-        // be absent.
-        if app.staticTexts["No progress yet"].exists {
+        // Per §3.6 / §5.1, the top-right "Add activity" button appears only
+        // when a progress is selected.
+        if app.staticTexts["No progress yet"].waitForExistence(timeout: 5) {
             XCTAssertFalse(
                 app.buttons["Add activity"].exists,
                 "Add activity button must be hidden when there are no progresses"
             )
         } else {
-            throw XCTSkip("A progress is already selected — empty state not shown.")
+            XCTAssertTrue(
+                app.buttons["Add activity"].exists,
+                "Add activity button should be visible when a progress is selected"
+            )
         }
     }
 
-    // MARK: - Tier 3: seeded-state flows (stubs)
+    // MARK: - Data-mutating flows (stubs)
 
     func testCreateProgressFlow() throws {
         throw XCTSkip("""
-        Needs a seeded/mock auth session. Once the app honors a UI-testing \
-        launch argument to sign in a deterministic test user, implement: \
-        open progress menu → 'Create progress…' → type title → Create → \
-        assert the new title appears and 'Add activity' becomes visible.
+        Runnable now that a session is available, but must self-clean to \
+        avoid polluting the shared test account: open progress menu → \
+        'Create progress…' → type a unique title → Create → assert it appears \
+        and 'Add activity' becomes visible → then delete it in the same test.
         """)
     }
 
     func testDeleteProgressIsOwnerOnly() throws {
         throw XCTSkip("""
-        Needs seeded owner + collaborator sessions. Implement: as owner, \
-        assert 'Delete Progress' exists; as collaborator on a shared \
-        progress, assert it does not (FUNCTIONALITY.md §3.5, §9.1).
+        Needs a second (collaborator) account to assert the negative case. \
+        Implement: as owner, assert 'Delete Progress' exists; as collaborator \
+        on a shared progress, assert it does not (FUNCTIONALITY.md §3.5, §9.1).
         """)
     }
 }

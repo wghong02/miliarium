@@ -29,6 +29,7 @@ struct LoginView: View {
                         Text(message)
                             .foregroundStyle(.red)
                             .font(.footnote)
+                            .accessibilityIdentifier("authErrorMessage")
                     }
                 }
 
@@ -56,7 +57,13 @@ struct LoginView: View {
                         }
                         .frame(maxWidth: .infinity)
                     }
-                    .disabled(auth.isBusy || email.isEmpty || password.isEmpty)
+                    .disabled(!LoginFormValidation.canSubmit(
+                        email: email, password: password, isBusy: auth.isBusy
+                    ))
+                    // Stable handle for UI tests: the button title ("Sign in"
+                    // / "Create account") collides with the mode segmented
+                    // control's segment labels, so query this instead.
+                    .accessibilityIdentifier("authSubmitButton")
                 }
             }
             .navigationTitle("Welcome")
