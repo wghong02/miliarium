@@ -57,9 +57,7 @@ struct LoginView: View {
                         }
                         .frame(maxWidth: .infinity)
                     }
-                    .disabled(!LoginFormValidation.canSubmit(
-                        email: email, password: password, isBusy: auth.isBusy
-                    ))
+                    .disabled(auth.isBusy || email.isEmpty || password.isEmpty)
                     // Stable handle for UI tests: the button title ("Sign in"
                     // / "Create account") collides with the mode segmented
                     // control's segment labels, so query this instead.
