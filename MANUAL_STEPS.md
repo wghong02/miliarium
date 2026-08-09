@@ -126,6 +126,11 @@ skip media when running fully local.
 
 ## Already done (no action needed)
 
+- Backend logic is unit-tested (`cd backend/functions && npm test`, 57 tests):
+  authorization (owner/collaborator/self), invitation send/dedup/accept/revoke,
+  activity↔collection reconciliation, media path-injection + size validation,
+  the read serializers, and routing. No manual verification of these paths is
+  needed — CI-style `npm test` covers them.
 - iOS `PrivacyInfo.xcprivacy` (required-reason API manifest).
 - Legal pages hosted at `wghong02.github.io/apps/{policy,terms,support}/miliarium`
   and referenced from the app.
