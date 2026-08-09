@@ -87,10 +87,12 @@ owner/collaborator membership and **all client writes are denied**. Deploy them
 (they aren't included in `--only functions`):
 
 ```bash
-firebase deploy --only firestore:rules,storage:rules
+firebase deploy --only firestore:rules,storage
 ```
 
-Until deployed, whatever rules are in the console still apply.
+The target is `storage`, not `storage:rules` (only `firestore` takes the
+`:rules` sub-target), and it needs the Storage bucket provisioned. Until
+deployed, whatever rules are in the console still apply.
 
 ## Day-to-day
 

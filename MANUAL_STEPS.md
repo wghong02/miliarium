@@ -84,8 +84,13 @@ writes, client reads gated by membership." They're now **wired into
 
 ```bash
 cd backend
-firebase deploy --only firestore:rules,storage:rules
+firebase deploy --only firestore:rules,storage
 ```
+
+Note the target is `storage`, not `storage:rules` (that `:rules` form is only
+valid for `firestore`). The `storage` half needs the bucket from step 6 — if it
+errors on a missing bucket, do step 6 first, or ship just
+`firebase deploy --only firestore:rules` now and storage after.
 
 Until this is done, whatever rules are in the console still apply (so an
 authenticated user could read/write another user's data if those are permissive).

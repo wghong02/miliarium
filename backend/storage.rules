@@ -9,7 +9,7 @@
 //  Firestore, so per-progress membership isn't enforceable here; media paths are
 //  unguessable (UUID activity/media ids).
 //
-//  Deploy: `firebase deploy --only storage:rules` (from backend/).
+//  Deploy: `firebase deploy --only storage` (from backend/).
 // =============================================================================
 
 rules_version = '2';
