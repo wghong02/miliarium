@@ -96,6 +96,12 @@ final class AuthViewModel {
     /// `FirebaseAuth`'s `delete()` requires a recent login and the persisted
     /// session is usually too old to qualify. Deletes the Firestore profile
     /// doc first — while still authenticated — then the Auth account itself.
+    ///
+    /// Deleting the `users/{uid}` doc fires the backend `onUserDeleted`
+    /// trigger, which cascades the rest server-side: the user's subtree
+    /// (deviceTokens, progressLinks, ...) and every progress they owned. See
+    /// backend/cascadeDeletes.ts.
+    ///
     /// The auth-state listener flips `user` to `nil` on success, so the auth
     /// gate returns to the login screen automatically. Returns `true` on
     /// success; on failure `errorMessage` carries the reason.

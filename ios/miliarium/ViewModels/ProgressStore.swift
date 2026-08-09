@@ -250,48 +250,15 @@ final class ProgressStore {
         AppLogger.progressStore.debug("deleteProgress progressId=\(progressId)")
         errorMessage = nil
         let db = Firestore.firestore()
-        let progressRef = db.collection("progressItems").document(progressId)
 
         do {
-            // Fetch every doc that needs to be cascade-deleted.
-            let invitationsSnapshot = try await db.collection("invitations")
-                .whereField("progressItemId", isEqualTo: progressId)
-                .getDocuments()
-            let activitiesSnapshot = try await progressRef
-                .collection("activities")
-                .getDocuments()
-            let collectionsSnapshot = try await progressRef
-                .collection("collections")
-                .getDocuments()
-            // Every user's link to this progress — owner + all collaborators.
-            // Requires a collection-group index on `progressLinks.progressItemId`.
-            let linksSnapshot = try await db.collectionGroup("progressLinks")
-                .whereField("progressItemId", isEqualTo: progressId)
-                .getDocuments()
-
-            // Firestore batches are capped at 500 operations.
-            // Split into chunks of 499 (leave one slot for the progress doc itself in the last chunk).
-            var allDocs: [DocumentReference] =
-                invitationsSnapshot.documents.map(\.reference) +
-                activitiesSnapshot.documents.map(\.reference) +
-                collectionsSnapshot.documents.map(\.reference) +
-                linksSnapshot.documents.map(\.reference)
-            allDocs.append(progressRef)
-
-            let chunkSize = 500
-            let chunks = stride(from: 0, to: allDocs.count, by: chunkSize).map {
-                Array(allDocs[$0 ..< min($0 + chunkSize, allDocs.count)])
-            }
-
-            for chunk in chunks {
-                let batch = db.batch()
-                for ref in chunk {
-                    batch.deleteDocument(ref)
-                }
-                try await Self.commitBatch(batch)
-            }
-
-            AppLogger.progressStore.debug("deleteProgress succeeded progressId=\(progressId) totalDocs=\(allDocs.count)")
+            // The client only deletes the top-level progress doc. The backend
+            // `onProgressDeleted` trigger cascades everything that referenced
+            // it — the activities + collections subtrees (and their media /
+            // Storage), plus every invitation and every user's progressLink
+            // (owner + collaborators). See backend/cascadeDeletes.ts.
+            try await db.collection("progressItems").document(progressId).delete()
+            AppLogger.progressStore.debug("deleteProgress succeeded progressId=\(progressId)")
             return true
         } catch {
             AppLogger.progressStore.error("deleteProgress failed progressId=\(progressId): \(error)")

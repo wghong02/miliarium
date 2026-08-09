@@ -138,35 +138,18 @@ class ActivityCollectionService {
 
     // MARK: - Delete
 
-    /// Deletes a collection. Any collection can be deleted — activities remain
-    /// (their `collectionIds` are cleaned of the removed collection's ID in
-    /// the same atomic batch). An orphaned activity with no collections still
-    /// appears in the virtual "All activities" view.
+    /// Deletes a collection. The client only removes the collection doc; the
+    /// backend `onCollectionDeleted` trigger pulls the collection's ID out of
+    /// every member activity's `collectionIds` (see backend/cascadeDeletes.ts).
+    /// An orphaned activity with no collections still appears in the virtual
+    /// "All activities" view.
     func deleteCollection(
         _ collection: ActivityCollection,
         progressItemId: String
     ) async throws {
-        AppLogger.activityCollection.debug("deleteCollection id=\(collection.id) progressId=\(progressItemId) memberCount=\(collection.activityIds.count)")
-        let batch = db.batch()
-        let now = Timestamp(date: Date())
-
-        // Remove this collection from every member activity's collectionIds.
-        for activityId in collection.activityIds {
-            let activityRef = activitiesRef(for: progressItemId).document(activityId)
-            batch.updateData(
-                [
-                    "collectionIds": FieldValue.arrayRemove([collection.id]),
-                    "updatedAt": now
-                ],
-                forDocument: activityRef
-            )
-        }
-
-        let collectionRef = collectionsRef(for: progressItemId).document(collection.id)
-        batch.deleteDocument(collectionRef)
-
+        AppLogger.activityCollection.debug("deleteCollection id=\(collection.id) progressId=\(progressItemId)")
         do {
-            try await Self.commitBatch(batch)
+            try await collectionsRef(for: progressItemId).document(collection.id).delete()
             AppLogger.activityCollection.debug("deleteCollection succeeded id=\(collection.id)")
         } catch {
             AppLogger.activityCollection.error("deleteCollection failed id=\(collection.id): \(error)")
@@ -219,19 +202,6 @@ class ActivityCollectionService {
         }
     }
 
-    // MARK: - Batch helper
-
-    nonisolated private static func commitBatch(_ batch: WriteBatch) async throws {
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-            batch.commit { error in
-                if let error {
-                    continuation.resume(throwing: error)
-                } else {
-                    continuation.resume(returning: ())
-                }
-            }
-        }
-    }
 }
 
 let activityCollectionService = ActivityCollectionService()

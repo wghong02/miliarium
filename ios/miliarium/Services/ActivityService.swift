@@ -223,29 +223,14 @@ class ActivityService {
 
     // MARK: - Delete
 
-    /// Deletes an activity and removes its ID from every collection it
-    /// belonged to.
+    /// Deletes an activity. The client only removes the activity doc; the
+    /// backend `onActivityUnlinkCollections` trigger pulls the activity's ID
+    /// out of every collection's `activityIds`, and `onActivityDeleted`
+    /// cleans up its media docs + Storage files. See backend/cascadeDeletes.ts.
     func deleteActivity(_ activity: Activity, progressItemId: String) async throws {
-        AppLogger.activity.debug("deleteActivity id=\(activity.id) progressId=\(progressItemId) collections=\(activity.collectionIds)")
-        let activityRef = activitiesRef(for: progressItemId).document(activity.id)
-
-        let batch = db.batch()
-        batch.deleteDocument(activityRef)
-
-        let now = Timestamp(date: Date())
-        for collectionId in activity.collectionIds {
-            let ref = collectionsRef(for: progressItemId).document(collectionId)
-            batch.updateData(
-                [
-                    "activityIds": FieldValue.arrayRemove([activity.id]),
-                    "updatedAt": now
-                ],
-                forDocument: ref
-            )
-        }
-
+        AppLogger.activity.debug("deleteActivity id=\(activity.id) progressId=\(progressItemId)")
         do {
-            try await Self.commitBatch(batch)
+            try await activitiesRef(for: progressItemId).document(activity.id).delete()
             AppLogger.activity.debug("deleteActivity succeeded id=\(activity.id)")
         } catch {
             AppLogger.activity.error("deleteActivity failed id=\(activity.id): \(error)")

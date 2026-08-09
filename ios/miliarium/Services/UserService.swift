@@ -129,8 +129,9 @@ class UserService {
 
     /// Permanently deletes the user's `users/{userId}` profile document.
     /// Called from the in-app account-deletion flow (App Store Review
-    /// Guideline 5.1.1(v)). Server-side cascade of the user's owned data is
-    /// handled by the backend the same way activity/media deletes are.
+    /// Guideline 5.1.1(v)). Deleting this doc fires the backend `onUserDeleted`
+    /// trigger, which cascades the user's subtree (deviceTokens, progressLinks)
+    /// and every progress they owned. See backend/cascadeDeletes.ts.
     func deleteUser(userId: String) async throws {
         AppLogger.user.debug("deleteUser userId=\(userId)")
         do {

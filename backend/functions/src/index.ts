@@ -19,3 +19,6 @@ export * from "./pushNotifications";
 
 // Cascade Storage cleanup on media/activity deletion.
 export * from "./mediaCleanup";
+
+// Cascade relational cleanup on progress/collection/activity/user deletion.
+export * from "./cascadeDeletes";
