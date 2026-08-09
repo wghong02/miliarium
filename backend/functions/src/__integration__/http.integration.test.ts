@@ -9,6 +9,8 @@
  * firestore + auth emulators). Requires a Java runtime.
  */
 
+import { getFirestore } from "firebase-admin/firestore";
+
 const PROJECT = process.env.GCLOUD_PROJECT ?? "demo-miliarium";
 const FUNCTIONS_PORT = 5001; // matches backend/firebase.json
 const API = `http://127.0.0.1:${FUNCTIONS_PORT}/${PROJECT}/us-central1/api`;
@@ -16,8 +18,8 @@ const AUTH_HOST = process.env.FIREBASE_AUTH_EMULATOR_HOST ?? "127.0.0.1:9099";
 
 let userCounter = 0;
 
-/** Creates a fresh Auth-emulator user and returns an ID token + uid. */
-async function signUp(): Promise<{ idToken: string; uid: string }> {
+/** Creates a fresh Auth-emulator user and returns an ID token + uid + email. */
+async function signUp(): Promise<{ idToken: string; uid: string; email: string }> {
   const email = `user${Date.now()}_${userCounter++}@example.com`;
   const res = await fetch(
     `http://${AUTH_HOST}/identitytoolkit.googleapis.com/v1/accounts:signUp?key=fake-api-key`,
@@ -29,7 +31,7 @@ async function signUp(): Promise<{ idToken: string; uid: string }> {
   );
   const data: any = await res.json();
   if (!data.idToken) throw new Error(`signUp failed: ${JSON.stringify(data)}`);
-  return { idToken: data.idToken, uid: data.localId };
+  return { idToken: data.idToken, uid: data.localId, email };
 }
 
 async function api(
@@ -117,6 +119,25 @@ describe("api HTTP layer", () => {
     expect(list.json.collections[0]).toMatchObject({ id: "c1", name: "Cities" });
     // serialized stats object round-trips
     expect(list.json.collections[0].stats).toMatchObject({ total: 0 });
+  });
+
+  it("ensures the profile lazily (with the account email), then deletes the account", async () => {
+    const { idToken, uid, email } = await signUp();
+
+    const ensure = await api("POST", "/me/ensure", { token: idToken });
+    expect(ensure.status).toBe(200);
+
+    const profile = await api("GET", `/users/${uid}`, { token: idToken });
+    expect(profile.status).toBe(200);
+    expect(profile.json).toMatchObject({ id: uid, email });
+
+    const del = await api("DELETE", "/me/account", { token: idToken });
+    expect(del.status).toBe(200);
+
+    // Verified directly against Firestore: the profile doc is gone (which also
+    // fired the onUserDeleted cascade).
+    const doc = await getFirestore().collection("users").doc(uid).get();
+    expect(doc.exists).toBe(false);
   });
 
   it("enforces membership over HTTP (a non-member gets 403)", async () => {

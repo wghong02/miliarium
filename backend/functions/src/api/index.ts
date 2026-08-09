@@ -26,7 +26,9 @@ import * as media from "./media";
 
 /** The route table. Add new endpoints here as domains are migrated. */
 const routes: Route[] = [
-  // Users
+  // Users + account lifecycle
+  { method: "POST", pattern: "/me/ensure", handler: users.ensureProfile },
+  { method: "DELETE", pattern: "/me/account", handler: users.deleteAccount },
   { method: "PATCH", pattern: "/me", handler: users.updateProfile },
   { method: "GET", pattern: "/users", handler: users.getUsers },
   { method: "GET", pattern: "/users/:id", handler: users.getUser },

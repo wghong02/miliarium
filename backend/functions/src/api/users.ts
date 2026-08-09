@@ -1,16 +1,52 @@
 /**
- * User profile handlers.
- *
- * The `users/{uid}` doc is created by the `onAuthUserCreated` auth trigger
- * (accountCreation.ts), so the API only handles profile edits.
+ * User profile + account-lifecycle handlers. The `users/{uid}` doc is created
+ * lazily on sign-in (`ensureProfile`), edited via `updateProfile`, and removed
+ * with the whole account via `deleteAccount` — all here, so no Gen 1 Auth
+ * triggers are needed.
  */
 
 import { getFirestore, Timestamp, FieldValue } from "firebase-admin/firestore";
+import { getAuth } from "firebase-admin/auth";
 import { RequestContext, optionalString } from "./http";
 import { LIMITS, clampText } from "./limits";
 import { serializeUser, compact } from "./serialize";
 
 const db = getFirestore();
+
+/**
+ * POST /me/ensure — idempotently create the caller's `users/{uid}` profile doc.
+ * Called on sign-in (replaces the old onAuthUserCreated auth trigger). The email
+ * is read from the Auth record so collaborators can resolve/invite by email.
+ */
+export async function ensureProfile(ctx: RequestContext): Promise<{ ok: true }> {
+  const ref = db.collection("users").doc(ctx.uid);
+  if ((await ref.get()).exists) return { ok: true };
+
+  let email: string | undefined;
+  try {
+    email = (await getAuth().getUser(ctx.uid)).email ?? undefined;
+  } catch {
+    // Best-effort — proceed without email if the lookup fails.
+  }
+  const now = Timestamp.now();
+  const data: Record<string, unknown> = { userId: ctx.uid, createdAt: now, updatedAt: now };
+  if (email) data.email = email;
+
+  await ref.set(data, { merge: true });
+  return { ok: true };
+}
+
+/**
+ * DELETE /me/account — permanently delete the caller's account (App Store Review
+ * Guideline 5.1.1(v)). Deletes the Auth account first (admin — reliable), then
+ * the `users/{uid}` doc, which fires the `onUserDeleted` cascade that wipes the
+ * rest. Auth-first means a failure never destroys data while the account lives.
+ */
+export async function deleteAccount(ctx: RequestContext): Promise<{ ok: true }> {
+  await getAuth().deleteUser(ctx.uid);
+  await db.collection("users").doc(ctx.uid).delete();
+  return { ok: true };
+}
 
 /**
  * PATCH /me — set or clear the caller's display name.

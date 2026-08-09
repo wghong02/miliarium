@@ -24,10 +24,11 @@ cd ..
 firebase deploy --only functions
 ```
 
-This deploys `api` plus the triggers (`onActivityCreated`, cascade cleanup,
-`onAuthUserCreated`, `onAuthUserDeleted`). First deploy also enables the
-required Google Cloud APIs (Cloud Run, Cloud Build, Artifact Registry, Eventarc)
-— accept the prompts.
+This deploys `api` plus the Firestore/Storage triggers (`onActivityCreated`,
+cascade + media cleanup). Everything is Gen 2 (account lifecycle is handled by
+the `api` function, not Auth triggers), so it runs on the `nodejs24` runtime.
+First deploy also enables the required Google Cloud APIs (Cloud Run, Cloud
+Build, Artifact Registry, Eventarc) — accept the prompts.
 
 ## 2. 🔴 Point the app at the deployed API
 

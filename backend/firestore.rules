@@ -42,7 +42,7 @@ service cloud.firestore {
       // Single-doc reads by known id (display names); no listing/enumeration.
       allow get: if isSignedIn();
       allow list: if false;
-      allow write: if false; // profile created/edited via backend + auth trigger
+      allow write: if false; // profile created/edited/deleted via backend API
 
       match /deviceTokens/{token} {
         allow read: if isSignedIn() && userId == uid();

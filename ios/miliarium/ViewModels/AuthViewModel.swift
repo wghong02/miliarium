@@ -40,11 +40,16 @@ final class AuthViewModel {
         authListener.start { [weak self] user in
             Task { @MainActor [weak self] in
                 self?.user = user
-                // The `users/{uid}` doc is materialized server-side by the
-                // `onAuthUserCreated` auth trigger (backend/accountCreation.ts),
-                // so there's nothing to upsert here.
                 if let user {
                     AppLogger.auth.debug("authStateChanged: user signed in uid=\(user.uid)")
+                    // Idempotently ensure the backend profile doc exists (the
+                    // backend reads the email from the Auth record). Best-effort;
+                    // don't block sign-in.
+                    do {
+                        try await userService.ensureProfile()
+                    } catch {
+                        AppLogger.auth.error("ensureProfile failed uid=\(user.uid): \(error)")
+                    }
                 } else {
                     AppLogger.auth.debug("authStateChanged: user signed out")
                 }
@@ -84,26 +89,19 @@ final class AuthViewModel {
     }
 
     /// Permanently deletes the signed-in user's account (App Store Review
-    /// Guideline 5.1.1(v)). `password` re-authenticates the user, because
-    /// `FirebaseAuth`'s `delete()` requires a recent login and the persisted
-    /// session is usually too old to qualify.
+    /// Guideline 5.1.1(v)). `password` re-authenticates the user first — this
+    /// confirms their identity before the destructive call and surfaces a wrong
+    /// password as an error.
     ///
-    /// The Auth account is deleted **first**. The backend `onAuthUserDeleted`
-    /// trigger reacts by deleting the `users/{uid}` profile doc, which in turn
-    /// fires the `onUserDeleted` cascade that wipes the rest server-side (the
-    /// user's subtree — deviceTokens, progressLinks, ... — and every progress
-    /// they owned). See backend/accountDeletion.ts and backend/cascadeDeletes.ts.
+    /// The actual teardown happens server-side: `DELETE /me/account` deletes the
+    /// Auth account (admin) and then the `users/{uid}` doc, which fires the
+    /// `onUserDeleted` cascade that wipes the rest (the user's subtree —
+    /// deviceTokens, progressLinks, ... — and every progress they owned). See
+    /// backend/api/users.ts and backend/cascadeDeletes.ts. Deleting the Auth
+    /// account first means nothing is destroyed unless the account is actually
+    /// gone. On success we sign out locally so the auth gate returns to login.
     ///
-    /// This ordering matters: deleting the profile doc from the client *before*
-    /// the Auth account was gone fired the destructive cascade immediately, so
-    /// a failed Auth deletion would leave the account alive with all its data
-    /// already destroyed. Cascading off the Auth deletion means nothing is
-    /// destroyed unless the account is actually gone — a failed delete here is
-    /// fully recoverable.
-    ///
-    /// The auth-state listener flips `user` to `nil` on success, so the auth
-    /// gate returns to the login screen automatically. Returns `true` on
-    /// success; on failure `errorMessage` carries the reason.
+    /// Returns `true` on success; on failure `errorMessage` carries the reason.
     @discardableResult
     func deleteAccount(password: String) async -> Bool {
         guard let currentUser = Auth.auth().currentUser else { return false }
@@ -119,10 +117,11 @@ final class AuthViewModel {
                 )
                 try await currentUser.reauthenticate(with: credential)
             }
-            // Delete the Auth account first; the backend cascades the data
-            // teardown off this deletion. Nothing is destroyed unless this
-            // succeeds, so a failure here leaves the account fully intact.
-            try await currentUser.delete()
+            // Backend deletes the Auth account + all data as admin.
+            try await BackendClient.shared.request("DELETE", "/me/account")
+            // The account is gone server-side; clear the local session so the
+            // auth-state listener flips `user` to nil and returns to login.
+            try? Auth.auth().signOut()
             AppLogger.auth.debug("deleteAccount succeeded uid=\(uid)")
             return true
         } catch {

@@ -5,10 +5,14 @@ import OSLog
 class UserService {
 
     // MARK: - Create / upsert
-    //
-    // The `users/{uid}` doc is created server-side by the `onAuthUserCreated`
-    // auth trigger on signup (backend/accountCreation.ts) — the client no longer
-    // upserts it.
+
+    /// Idempotently ensures the caller's `users/{uid}` profile doc exists, via
+    /// the backend (`POST /me/ensure`). Called on sign-in. Replaces the old
+    /// client-side upsert / auth-creation trigger.
+    func ensureProfile() async throws {
+        AppLogger.user.debug("ensureProfile")
+        try await BackendClient.shared.request("POST", "/me/ensure")
+    }
 
     // MARK: - Read
 
@@ -75,10 +79,10 @@ class UserService {
 
     // MARK: - Delete
     //
-    // Account deletion no longer deletes the profile doc from the client. The
-    // client deletes only the Auth account (AuthViewModel.deleteAccount); the
-    // backend `onAuthUserDeleted` trigger removes `users/{uid}` server-side,
-    // which fires the `onUserDeleted` cascade. See backend/accountDeletion.ts.
+    // Account deletion is server-side: AuthViewModel.deleteAccount calls
+    // `DELETE /me/account`, which deletes the Auth account (admin) then the
+    // `users/{uid}` doc, firing the `onUserDeleted` cascade. See
+    // backend/api/users.ts and backend/cascadeDeletes.ts.
 }
 
 let userService = UserService()

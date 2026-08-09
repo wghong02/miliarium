@@ -124,9 +124,12 @@ jest.mock("firebase-admin/firestore", () => {
   };
 });
 
-jest.mock("firebase-admin/auth", () => ({
-  getAuth: () => ({ verifyIdToken: jest.fn() }),
-}));
+jest.mock("firebase-admin/auth", () => {
+  const verifyIdToken = jest.fn();
+  const getUser = jest.fn(async (uid: string) => ({ uid, email: `${uid}@example.com` }));
+  const deleteUser = jest.fn(async () => undefined);
+  return { getAuth: () => ({ verifyIdToken, getUser, deleteUser }) };
+});
 
 jest.mock("firebase-admin/storage", () => {
   const files = new Map<string, { exists: boolean; size: number }>();
@@ -150,6 +153,7 @@ jest.mock("firebase-admin/storage", () => {
 });
 
 import { getFirestore, FieldValue } from "firebase-admin/firestore";
+import { getAuth } from "firebase-admin/auth";
 import { getStorage } from "firebase-admin/storage";
 import * as authz from "../api/auth";
 import * as progress from "../api/progress";
@@ -477,6 +481,25 @@ describe("media", () => {
 });
 
 // --- users + moderation ---------------------------------------------------
+
+describe("account lifecycle", () => {
+  it("ensureProfile creates the doc when missing and is idempotent", async () => {
+    await users.ensureProfile(ctx({ uid: "U" }));
+    expect(writesFor("users/U")[0].data).toMatchObject({ userId: "U", email: "U@example.com" });
+
+    db.__setDoc("users/V", { userId: "V" });
+    db.__writes.length = 0;
+    await users.ensureProfile(ctx({ uid: "V" }));
+    expect(writesFor("users/V")).toHaveLength(0); // already exists → no write
+  });
+
+  it("deleteAccount deletes the Auth user, then the profile doc", async () => {
+    const auth = (getAuth as unknown as () => any)();
+    await users.deleteAccount(ctx({ uid: "U" }));
+    expect(auth.deleteUser).toHaveBeenCalledWith("U");
+    expect(writesFor("users/U").some((w: any) => w.op === "delete")).toBe(true);
+  });
+});
 
 describe("users & moderation", () => {
   it("updateProfile sets a name, then clears it", async () => {

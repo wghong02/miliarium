@@ -5,7 +5,9 @@
  * related triggers into separate files under `src/` and re-export them
  * here as your codebase grows.
  *
- * Uses the Gen 2 SDK (`firebase-functions/v2/*`).
+ * Everything is Gen 2 (`firebase-functions/v2/*`). Account creation/deletion is
+ * handled by the HTTPS API (POST /me/ensure, DELETE /me/account) rather than
+ * Gen 1 Auth triggers, so the whole codebase can run on a modern runtime.
  */
 
 import { initializeApp } from "firebase-admin/app";
@@ -14,7 +16,7 @@ import { initializeApp } from "firebase-admin/app";
 // instance — calling `initializeApp()` again would throw.
 initializeApp();
 
-// Push notification triggers (invitations + activities).
+// Push notification triggers (activities).
 export * from "./pushNotifications";
 
 // Cascade Storage cleanup on media/activity deletion.
@@ -23,10 +25,6 @@ export * from "./mediaCleanup";
 // Cascade relational cleanup on progress/collection/activity/user deletion.
 export * from "./cascadeDeletes";
 
-// Auth triggers: create the users/{uid} doc on signup, and remove it on account
-// deletion (which fans out to the onUserDeleted cascade above).
-export * from "./accountCreation";
-export * from "./accountDeletion";
-
-// HTTPS API: fronts every client mutation (writes go through the backend).
+// HTTPS API: fronts every client mutation + read (writes go through the backend),
+// and owns account lifecycle (ensure on sign-in, delete account).
 export * from "./api";

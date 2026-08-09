@@ -193,9 +193,10 @@ while `npm run serve` is running.
 Each trigger lives in its own file under `src/` and is re-exported from
 `index.ts`:
 
-- **`api`** (`src/api/`) — HTTPS endpoint fronting every client mutation
+- **`api`** (`src/api/`) — HTTPS endpoint fronting every client mutation + read
   (progress, activities, collections, media, invitations, profile, device
-  tokens, moderation). See "The `api` function" above.
+  tokens, moderation) and account lifecycle (`POST /me/ensure` on sign-in,
+  `DELETE /me/account`). See "The `api` function" above.
 - **`onActivityCreated`** (`pushNotifications.ts`) — notify collaborators
   (everyone with a `progressLinks/{id}` doc except the writer) when a new
   activity is added. Invitations intentionally do **not** send a push — they
@@ -204,6 +205,9 @@ Each trigger lives in its own file under `src/` and is re-exported from
   / `onUserDeleted`** (`cascadeDeletes.ts`) — relational cascade cleanup.
 - **`onMediaDeleted` / `onActivityDeleted`** (`mediaCleanup.ts`) — Storage
   cleanup for deleted media/activities.
-- **`onAuthUserCreated` / `onAuthUserDeleted`** (`accountCreation.ts` /
-  `accountDeletion.ts`) — create the `users/{uid}` doc on signup and delete it
-  on account deletion (which fans out to the cascade above).
+
+Account lifecycle is handled by the `api` function, **not** Auth triggers:
+`POST /me/ensure` creates the `users/{uid}` doc on sign-in, and `DELETE
+/me/account` deletes the Auth account (admin) then the doc (which fires the
+`onUserDeleted` cascade). This keeps the whole codebase Gen 2 — Firebase Auth
+background triggers are Gen 1 only and can't run on modern runtimes.
