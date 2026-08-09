@@ -1,0 +1,15 @@
+# Dependencies
+node_modules/
+
+# TypeScript build output
+lib/
+*.tsbuildinfo
+
+# Logs
+*.log
+npm-debug.log*
+
+# Local env / runtime config
+.env
+.env.local
+.runtimeconfig.json
