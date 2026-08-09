@@ -22,15 +22,10 @@ struct MapView: View {
     /// Collections list owned by `ExploreSectionView`; used to render the
     /// per-pin "add to collection" menu.
     let collections: [ActivityCollection]
-    /// Active collection filter coming from the section view's toolbar
-    /// picker. `nil` means show pins from every collection.
-    let selectedCollectionId: String?
-    /// When `false`, pins for activities marked complete are hidden.
-    let showCompleted: Bool
-    /// When `false`, pins for activities whose timestamp is before
-    /// start-of-today are hidden. Untimed activities (no timestamp) are
-    /// always shown — `past` only applies to time-bound items.
-    let showPast: Bool
+    /// Collection + completed/past filters from the section view's toolbar.
+    /// Untimed activities (no timestamp) are always shown — `past` only
+    /// applies to time-bound items (see `ActivityFilter.matches`).
+    let filter: ActivityFilter
 
     @State private var activitiesWithLocation: [Activity] = []
     @State private var activitiesListener: ListenerRegistration?
@@ -51,26 +46,12 @@ struct MapView: View {
     @State private var currentLocation: CLLocationCoordinate2D?
     @State private var locationDenied = false
 
-    /// Activities passing every active filter from the toolbar:
-    /// `hasLocation` (already filtered when the listener writes),
-    /// collection membership, completed-state, and past-vs-future.
+    /// Activities passing every active filter: `hasLocation` (already
+    /// filtered when the listener writes) plus collection membership,
+    /// completed-state, and past-vs-future.
     private var filteredActivitiesWithLocation: [Activity] {
         let startOfToday = Foundation.Calendar.current.startOfDay(for: Date())
-        return activitiesWithLocation.filter { activity in
-            if let selectedCollectionId,
-               !activity.collectionIds.contains(selectedCollectionId) {
-                return false
-            }
-            if !showCompleted, activity.isCompleted == true {
-                return false
-            }
-            // Past only applies to time-bound activities — untimed ones
-            // (no `timestamp`) are always shown regardless of this filter.
-            if !showPast, let ts = activity.timestamp, ts < startOfToday {
-                return false
-            }
-            return true
-        }
+        return activitiesWithLocation.filter { filter.matches($0, startOfToday: startOfToday) }
     }
 
     /// Coordinate of the next upcoming activity — one with a timestamp in
@@ -212,10 +193,10 @@ struct MapView: View {
                 listenerInitialized = true
                 Task { await fetchCurrentLocation() }
             }
-            .onChange(of: selectedCollectionId) { _, _ in
-                // When the filter changes, refit the camera so newly
-                // visible pins fill the screen instead of being lost off
-                // the edge.
+            .onChange(of: filter.collectionId) { _, _ in
+                // When the collection filter changes, refit the camera so
+                // newly visible pins fill the screen instead of being lost
+                // off the edge. (Toggling completed/past does not re-fit.)
                 fitCameraToActivities()
             }
         }

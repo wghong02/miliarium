@@ -12,13 +12,10 @@ struct ExploreSectionView: View {
 
     @State private var collections: [ActivityCollection] = []
     @State private var collectionsListener: ListenerRegistration?
-    @State private var selectedCollectionId: String?
     @State private var showMapHintSheet = false
-    /// When `false`, pins for activities marked complete are hidden.
-    @State private var showCompleted = false
-    /// When `false`, pins for activities whose timestamp is before
-    /// start-of-today are hidden. Untimed pins are unaffected.
-    @State private var showPast = false
+    /// Collection + completed/past filters, shared with `MapView` and driven
+    /// by the shared `CollectionFilterMenu` in the toolbar.
+    @State private var filter = ActivityFilter()
 
     var body: some View {
         NavigationStack {
@@ -35,9 +32,7 @@ struct ExploreSectionView: View {
                         progressItemId: selectedId,
                         progressTitle: selectedItem.title,
                         collections: collections,
-                        selectedCollectionId: selectedCollectionId,
-                        showCompleted: showCompleted,
-                        showPast: showPast
+                        filter: filter
                     )
                 } else {
                     ContentUnavailableView(
@@ -63,7 +58,7 @@ struct ExploreSectionView: View {
             }
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
-                    collectionFilterMenu
+                    CollectionFilterMenu(collections: collections, filter: $filter)
                 }
             }
             .onAppear {
@@ -85,51 +80,11 @@ struct ExploreSectionView: View {
             .onChange(of: progressStore.selectedProgressId) { _, newId in
                 tearDownCollectionsListener()
                 collections = []
-                selectedCollectionId = nil
+                // Switching progress resets all three filters to defaults.
+                filter = ActivityFilter()
                 if let newId {
                     setUpCollectionsListener(progressId: newId)
                 }
-            }
-        }
-    }
-
-    // MARK: - Filter menu
-
-    private var collectionFilterMenu: some View {
-        Menu {
-            Section("Collection") {
-                collectionPickerButton(label: "All collections", id: nil)
-                ForEach(collections) { collection in
-                    collectionPickerButton(label: collection.name, id: collection.id)
-                }
-            }
-            Section("Show") {
-                Toggle("Completed", isOn: $showCompleted)
-                Toggle("Past", isOn: $showPast)
-            }
-        } label: {
-            HStack(spacing: 4) {
-                Image(systemName: "line.3.horizontal.decrease.circle")
-                Image(systemName: "chevron.down")
-                    .font(.caption.weight(.semibold))
-            }
-        }
-        .accessibilityLabel("Filter")
-    }
-
-    /// Renders one collection-picker row. When this row's `id` matches the
-    /// currently-selected one, the row uses a filled `checkmark.circle.fill`
-    /// icon that picks up the menu's accent color (system blue) — that's
-    /// the "colored emphasis" for the active selection.
-    @ViewBuilder
-    private func collectionPickerButton(label: String, id: String?) -> some View {
-        Button {
-            selectedCollectionId = id
-        } label: {
-            if selectedCollectionId == id {
-                Label(label, systemImage: "checkmark.circle.fill")
-            } else {
-                Text(label)
             }
         }
     }
@@ -140,9 +95,11 @@ struct ExploreSectionView: View {
         collectionsListener = activityCollectionService.setCollectionsListener(for: progressId) { fetched in
             Task { @MainActor in
                 self.collections = fetched
-                if let selected = self.selectedCollectionId,
+                // If the selected collection was deleted, drop the collection
+                // filter back to "All" (the toggles are left untouched).
+                if let selected = self.filter.collectionId,
                    !fetched.contains(where: { $0.id == selected }) {
-                    self.selectedCollectionId = nil
+                    self.filter.collectionId = nil
                 }
             }
         }

@@ -138,8 +138,19 @@ final class AuthUITests: XCTestCase {
         // Act: Profile tab → Sign out.
         app.tabBars.buttons["Profile"].tap()
         let signOut = app.buttons["Sign out"]
-        XCTAssertTrue(signOut.waitForExistence(timeout: 5), "Profile should expose Sign out")
-        signOut.tap()
+        // "Sign out" sits at the bottom of the Profile list; on short /
+        // landscape layouts it starts off-screen, so scroll it into view.
+        if !signOut.waitForExistence(timeout: 3) {
+            app.swipeUp()
+        }
+        XCTAssertTrue(signOut.waitForExistence(timeout: 3), "Profile should expose Sign out")
+        // It can exist but report non-hittable (bottom edge / mid-scroll);
+        // a center-coordinate tap bypasses the hittability check.
+        if signOut.isHittable {
+            signOut.tap()
+        } else {
+            signOut.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        }
 
         // Assert: the auth gate returns to the login form.
         XCTAssertTrue(

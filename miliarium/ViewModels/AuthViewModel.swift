@@ -91,6 +91,43 @@ final class AuthViewModel {
         }
     }
 
+    /// Permanently deletes the signed-in user's account (App Store Review
+    /// Guideline 5.1.1(v)). `password` re-authenticates the user, because
+    /// `FirebaseAuth`'s `delete()` requires a recent login and the persisted
+    /// session is usually too old to qualify. Deletes the Firestore profile
+    /// doc first — while still authenticated — then the Auth account itself.
+    /// The auth-state listener flips `user` to `nil` on success, so the auth
+    /// gate returns to the login screen automatically. Returns `true` on
+    /// success; on failure `errorMessage` carries the reason.
+    @discardableResult
+    func deleteAccount(password: String) async -> Bool {
+        guard let currentUser = Auth.auth().currentUser else { return false }
+        let uid = currentUser.uid
+        AppLogger.auth.debug("deleteAccount uid=\(uid)")
+        isBusy = true
+        errorMessage = nil
+        defer { isBusy = false }
+        do {
+            if let email = currentUser.email {
+                let credential = EmailAuthProvider.credential(
+                    withEmail: email, password: password
+                )
+                try await currentUser.reauthenticate(with: credential)
+            }
+            // Remove the profile doc while we still hold auth (afterwards the
+            // client loses write permission). If the subsequent Auth delete
+            // fails, `ensureUserExists` re-creates the doc on next sign-in.
+            try await userService.deleteUser(userId: uid)
+            try await currentUser.delete()
+            AppLogger.auth.debug("deleteAccount succeeded uid=\(uid)")
+            return true
+        } catch {
+            AppLogger.auth.error("deleteAccount failed uid=\(uid): \(error)")
+            errorMessage = error.localizedDescription
+            return false
+        }
+    }
+
     private func perform(_ work: @Sendable () async throws -> Void) async {
         isBusy = true
         errorMessage = nil

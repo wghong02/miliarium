@@ -70,19 +70,55 @@ extension XCUIApplication {
             "Login email field not found — is the app on the Welcome screen?",
             file: file, line: line
         )
-        email.tap()
-        email.typeText(credentials.email)
 
-        let password = secureTextFields["Password"]
-        password.tap()
-        password.typeText(credentials.password)
+        // Make sure the mode picker is on "Sign in" (not "Create account"),
+        // otherwise the submit button would try to *register* the already-
+        // existing test account instead of signing in.
+        let signInSegment = segmentedControls.buttons["Sign in"]
+        if signInSegment.exists && !signInSegment.isSelected {
+            signInSegment.tap()
+        }
 
-        buttons["authSubmitButton"].tap()
+        focusAndType(email, credentials.email)
+        focusAndType(secureTextFields["Password"], credentials.password)
+
+        // Trigger the sign-in button — but only once it's actually enabled.
+        // The button is `.disabled(...email.isEmpty || password.isEmpty)`, so
+        // tapping before SwiftUI has registered the typed text is a silent
+        // no-op that never signs in (→ the tab-bar timeout below).
+        let submit = buttons["authSubmitButton"]
+        XCTAssertTrue(
+            submit.waitForExistence(timeout: 5),
+            "Sign-in submit button not found",
+            file: file, line: line
+        )
+        let enabled = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "isEnabled == true"),
+            object: submit
+        )
+        XCTAssertEqual(
+            XCTWaiter().wait(for: [enabled], timeout: 5), .completed,
+            "Sign-in button never became enabled — credentials didn't register",
+            file: file, line: line
+        )
+        submit.tap()
 
         XCTAssertTrue(
             waitForTabBar(),
             "Did not reach the tab bar within 15s after signing in",
             file: file, line: line
         )
+    }
+
+    /// Taps a field and types into it, guarding against the intermittent
+    /// "Neither element nor any descendant has keyboard focus" failure where
+    /// the first tap doesn't acquire focus. Retries the tap once if the
+    /// keyboard hasn't appeared.
+    private func focusAndType(_ field: XCUIElement, _ text: String) {
+        field.tap()
+        if !keyboards.element.waitForExistence(timeout: 2) {
+            field.tap()
+        }
+        field.typeText(text)
     }
 }

@@ -124,6 +124,23 @@ class UserService {
             throw error
         }
     }
+
+    // MARK: - Delete
+
+    /// Permanently deletes the user's `users/{userId}` profile document.
+    /// Called from the in-app account-deletion flow (App Store Review
+    /// Guideline 5.1.1(v)). Server-side cascade of the user's owned data is
+    /// handled by the backend the same way activity/media deletes are.
+    func deleteUser(userId: String) async throws {
+        AppLogger.user.debug("deleteUser userId=\(userId)")
+        do {
+            try await usersRef().document(userId).delete()
+            AppLogger.user.debug("deleteUser succeeded userId=\(userId)")
+        } catch {
+            AppLogger.user.error("deleteUser failed userId=\(userId): \(error)")
+            throw error
+        }
+    }
 }
 
 let userService = UserService()

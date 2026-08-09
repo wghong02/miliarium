@@ -52,6 +52,7 @@
 
 /* Begin PBXFileReference section */
 		11114CD730032DCD002866F7 /* miliariumUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = miliariumUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		11114D383004AD16002866F7 /* miliarium.xctestplan */ = {isa = PBXFileReference; lastKnownFileType = text; path = miliarium.xctestplan; sourceTree = "<group>"; };
 		114C0CAB2FA6A4CA00C19478 /* miliarium.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = miliarium.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		114C0CC02FA6A71C00C19478 /* GoogleService-Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = "GoogleService-Info.plist"; sourceTree = "<group>"; };
 		11F90C652FC7D7E600E07097 /* MiliariumWidgetExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = MiliariumWidgetExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -143,6 +144,7 @@
 		114C0CA22FA6A4CA00C19478 = {
 			isa = PBXGroup;
 			children = (
+				11114D383004AD16002866F7 /* miliarium.xctestplan */,
 				114C0CAD2FA6A4CA00C19478 /* miliarium */,
 				11F90C6B2FC7D7E600E07097 /* MiliariumWidget */,
 				11114CD830032DCD002866F7 /* miliariumUITests */,

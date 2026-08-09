@@ -12,6 +12,9 @@ struct ProfileSectionView: View {
     @State private var isSaving = false
     @State private var errorMessage: String?
     @State private var showSavedConfirmation = false
+    @State private var showDeleteAccount = false
+    @State private var deletePassword = ""
+    @State private var isDeletingAccount = false
 
     private var trimmedName: String {
         name.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -39,9 +42,20 @@ struct ProfileSectionView: View {
                         auth.signOut()
                     }
                 }
+                deleteAccountSection
             }
             .navigationTitle("Profile")
             .task { await loadProfile() }
+            .alert("Delete account?", isPresented: $showDeleteAccount) {
+                SecureField("Password", text: $deletePassword)
+                    .textContentType(.password)
+                Button("Cancel", role: .cancel) { deletePassword = "" }
+                Button("Delete", role: .destructive) {
+                    Task { await deleteAccount() }
+                }
+            } message: {
+                Text("This permanently deletes your account and can't be undone. Enter your password to confirm.")
+            }
         }
     }
 
@@ -127,6 +141,24 @@ struct ProfileSectionView: View {
         }
     }
 
+    private var deleteAccountSection: some View {
+        Section {
+            Button(role: .destructive) {
+                deletePassword = ""
+                showDeleteAccount = true
+            } label: {
+                if isDeletingAccount {
+                    ProgressView()
+                } else {
+                    Text("Delete account")
+                }
+            }
+            .disabled(isDeletingAccount)
+        } footer: {
+            Text("Permanently deletes your account and profile. This can't be undone.")
+        }
+    }
+
     // MARK: - Actions
 
     private func loadProfile() async {
@@ -165,6 +197,24 @@ struct ProfileSectionView: View {
         } catch {
             errorMessage = "Couldn't save: \(error.localizedDescription)"
             isSaving = false
+        }
+    }
+
+    private func deleteAccount() async {
+        guard !deletePassword.isEmpty else {
+            errorMessage = "Enter your password to delete your account."
+            return
+        }
+        isDeletingAccount = true
+        errorMessage = nil
+        let ok = await auth.deleteAccount(password: deletePassword)
+        deletePassword = ""
+        isDeletingAccount = false
+        // On success the auth-state listener sets `user` to nil and the auth
+        // gate returns to the login screen, so this view goes away. On
+        // failure, surface the reason inline.
+        if !ok {
+            errorMessage = auth.errorMessage ?? "Couldn't delete your account."
         }
     }
 }

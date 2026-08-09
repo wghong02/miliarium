@@ -10,14 +10,9 @@ struct CalendarSectionView: View {
 
     @State private var collections: [ActivityCollection] = []
     @State private var collectionsListener: ListenerRegistration?
-    @State private var selectedCollectionId: String?
-    /// When `false`, activities with `isCompleted == true` are hidden
-    /// from both the month-grid dots and the daily list. Default off
-    /// so the calendar opens focused on outstanding work.
-    @State private var showCompleted = false
-    /// When `false`, activities whose timestamp is before start-of-today
-    /// are hidden. Default off so the calendar opens looking forward.
-    @State private var showPast = false
+    /// Collection + completed/past filters, shared with `CalendarView` and
+    /// driven by the shared `CollectionFilterMenu` in the toolbar.
+    @State private var filter = ActivityFilter()
 
     var body: some View {
         NavigationStack {
@@ -47,9 +42,7 @@ struct CalendarSectionView: View {
                         CalendarView(
                             progressItemId: selectedId,
                             progressTitle: selectedItem.title,
-                            selectedCollectionId: selectedCollectionId,
-                            showCompleted: showCompleted,
-                            showPast: showPast
+                            filter: filter
                         )
                     } else {
                         ContentUnavailableView(
@@ -62,7 +55,7 @@ struct CalendarSectionView: View {
             }
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
-                    collectionFilterMenu
+                    CollectionFilterMenu(collections: collections, filter: $filter)
                 }
             }
             .onAppear {
@@ -77,51 +70,11 @@ struct CalendarSectionView: View {
             .onChange(of: progressStore.selectedProgressId) { _, newId in
                 tearDownCollectionsListener()
                 collections = []
-                selectedCollectionId = nil
+                // Switching progress resets all three filters to defaults.
+                filter = ActivityFilter()
                 if let newId {
                     setUpCollectionsListener(progressId: newId)
                 }
-            }
-        }
-    }
-
-    // MARK: - Filter menu
-
-    private var collectionFilterMenu: some View {
-        Menu {
-            Section("Collection") {
-                collectionPickerButton(label: "All collections", id: nil)
-                ForEach(collections) { collection in
-                    collectionPickerButton(label: collection.name, id: collection.id)
-                }
-            }
-            Section("Show") {
-                Toggle("Completed", isOn: $showCompleted)
-                Toggle("Past", isOn: $showPast)
-            }
-        } label: {
-            HStack(spacing: 4) {
-                Image(systemName: "line.3.horizontal.decrease.circle")
-                Image(systemName: "chevron.down")
-                    .font(.caption.weight(.semibold))
-            }
-        }
-        .accessibilityLabel("Filter")
-    }
-
-    /// Renders one collection-picker row. When this row's `id` matches the
-    /// currently-selected one, the row uses a filled `checkmark.circle.fill`
-    /// icon that picks up the menu's accent color (system blue) — that's
-    /// the "colored emphasis" for the active selection.
-    @ViewBuilder
-    private func collectionPickerButton(label: String, id: String?) -> some View {
-        Button {
-            selectedCollectionId = id
-        } label: {
-            if selectedCollectionId == id {
-                Label(label, systemImage: "checkmark.circle.fill")
-            } else {
-                Text(label)
             }
         }
     }
@@ -133,10 +86,11 @@ struct CalendarSectionView: View {
             Task { @MainActor in
                 self.collections = fetched
                 // If the active filter points at a collection that no
-                // longer exists (e.g. it was deleted), drop back to "All".
-                if let selected = self.selectedCollectionId,
+                // longer exists (e.g. it was deleted), drop the collection
+                // filter back to "All" (the toggles are left untouched).
+                if let selected = self.filter.collectionId,
                    !fetched.contains(where: { $0.id == selected }) {
-                    self.selectedCollectionId = nil
+                    self.filter.collectionId = nil
                 }
             }
         }

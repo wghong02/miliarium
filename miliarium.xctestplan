@@ -1,0 +1,29 @@
+{
+  "configurations" : [
+    {
+      "id" : "5F2B819A-0316-4898-B56A-D3BCB6E80DE3",
+      "name" : "Test Scheme Action",
+      "options" : {
+
+      }
+    }
+  ],
+  "defaultOptions" : {
+    "performanceAntipatternCheckerEnabled" : true,
+    "targetForVariableExpansion" : {
+      "containerPath" : "container:miliarium.xcodeproj",
+      "identifier" : "114C0CAA2FA6A4CA00C19478",
+      "name" : "miliarium"
+    }
+  },
+  "testTargets" : [
+    {
+      "target" : {
+        "containerPath" : "container:miliarium.xcodeproj",
+        "identifier" : "11114CD630032DCD002866F7",
+        "name" : "miliariumUITests"
+      }
+    }
+  ],
+  "version" : 1
+}

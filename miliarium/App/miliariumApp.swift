@@ -25,6 +25,14 @@ struct MiliariumApp: App {
     /// the app-icon badge so the red number disappears on app open.
     @Environment(\.scenePhase) private var scenePhase
 
+    /// True when the app is launched by the UI test suite (which passes
+    /// `-uitest-reset-auth`). Used to suppress the system notification
+    /// permission alert — that springboard alert pops over the app on
+    /// sign-in and blocks/queries-timeout the UI automation.
+    private var isUITesting: Bool {
+        ProcessInfo.processInfo.arguments.contains("-uitest-reset-auth")
+    }
+
     var body: some Scene {
         WindowGroup {
             ContentView()
@@ -44,7 +52,7 @@ struct MiliariumApp: App {
                     // sync any cached APNS token. No-op if the user is
                     // signed out (the permission dialog should only appear
                     // after sign-in for a coherent UX).
-                    if let uid = auth.user?.uid {
+                    if let uid = auth.user?.uid, !isUITesting {
                         Task {
                             await notificationService.requestPermission()
                             await notificationService.syncTokenToFirestore(userId: uid)
@@ -61,9 +69,11 @@ struct MiliariumApp: App {
                         if let oldValue {
                             Task { await notificationService.removeTokenFromFirestore(userId: oldValue) }
                         }
-                    } else if let newValue {
+                    } else if let newValue, !isUITesting {
                         // Sign-in: surface the permission prompt (no-op if
                         // already decided) and sync any cached APNS token.
+                        // Skipped under UI testing so the system notification
+                        // alert doesn't block automation.
                         Task {
                             await notificationService.requestPermission()
                             await notificationService.syncTokenToFirestore(userId: newValue)

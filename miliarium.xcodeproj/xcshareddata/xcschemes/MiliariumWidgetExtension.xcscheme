@@ -56,28 +56,6 @@
                ReferencedContainer = "container:miliarium.xcodeproj">
             </BuildableReference>
          </TestableReference>
-         <TestableReference
-            skipped = "NO"
-            parallelizable = "YES">
-            <BuildableReference
-               BuildableIdentifier = "primary"
-               BlueprintIdentifier = "11114CEB30032DFD002866F7"
-               BuildableName = "miliariumFunctionalityTests.xctest"
-               BlueprintName = "miliariumFunctionalityTests"
-               ReferencedContainer = "container:miliarium.xcodeproj">
-            </BuildableReference>
-         </TestableReference>
-         <TestableReference
-            skipped = "NO"
-            parallelizable = "YES">
-            <BuildableReference
-               BuildableIdentifier = "primary"
-               BlueprintIdentifier = "11114D1A30042CB0002866F7"
-               BuildableName = "miliariumTests.xctest"
-               BlueprintName = "miliariumTests"
-               ReferencedContainer = "container:miliarium.xcodeproj">
-            </BuildableReference>
-         </TestableReference>
       </Testables>
    </TestAction>
    <LaunchAction

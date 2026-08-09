@@ -12,38 +12,18 @@ import FirebaseFirestore
 struct CalendarView: View {
     let progressItemId: String
     let progressTitle: String
-    /// When non-nil, only activities that belong to this collection are
-    /// shown (both in the month-grid dot indicators and the daily list).
-    let selectedCollectionId: String?
-    /// When `false`, activities marked complete are hidden from both the
-    /// dots and the daily list.
-    let showCompleted: Bool
-    /// When `false`, activities whose timestamp is before start-of-today
-    /// are hidden.
-    let showPast: Bool
+    /// Collection + completed/past filters from the section view's toolbar.
+    let filter: ActivityFilter
 
     @State private var currentDate = Date()
     @State private var selectedDate: Date?
     @State private var allTimedActivities: [Activity] = []
 
-    /// Activities passing every active filter from the toolbar:
-    /// collection membership, completed-state, and past-vs-future.
+    /// Activities passing every active filter (collection, completed, past).
     /// Already filtered to "has timestamp" by the listener.
     private var filteredActivities: [Activity] {
         let startOfToday = Foundation.Calendar.current.startOfDay(for: Date())
-        return allTimedActivities.filter { activity in
-            if let selectedCollectionId,
-               !activity.collectionIds.contains(selectedCollectionId) {
-                return false
-            }
-            if !showCompleted, activity.isCompleted == true {
-                return false
-            }
-            if !showPast, let ts = activity.timestamp, ts < startOfToday {
-                return false
-            }
-            return true
-        }
+        return allTimedActivities.filter { filter.matches($0, startOfToday: startOfToday) }
     }
     @State private var isLoading = false
     @State private var errorMessage: String?
