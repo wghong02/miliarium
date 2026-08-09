@@ -22,6 +22,10 @@ final class MediaService {
     private let db = Firestore.firestore()
     private let storage = Storage.storage()
 
+    /// Per-file upload cap. Enforced here for fast feedback and, authoritatively,
+    /// by the backend on commit (which reads the stored object's real size).
+    static let maxUploadBytes: Int64 = 20 * 1024 * 1024 // 20 MB
+
     // MARK: - References
 
     private func mediaCollection(
@@ -118,6 +122,9 @@ final class MediaService {
         guard let data = image.jpegData(compressionQuality: 0.85) else {
             throw MediaServiceError.imageEncodingFailed
         }
+        guard Int64(data.count) <= Self.maxUploadBytes else {
+            throw MediaServiceError.tooLarge
+        }
         AppLogger.media.debug("uploadImage start bytes=\(data.count)")
 
         let width = Int(image.size.width * image.scale)
@@ -168,6 +175,10 @@ final class MediaService {
 
         let attributes = try? FileManager.default.attributesOfItem(atPath: fileURL.path)
         let sizeBytes = (attributes?[.size] as? NSNumber)?.int64Value
+
+        if let sizeBytes, sizeBytes > Self.maxUploadBytes {
+            throw MediaServiceError.tooLarge
+        }
 
         AppLogger.media.debug("uploadVideo start ext=\(ext) bytes=\(sizeBytes ?? -1)")
 
@@ -299,11 +310,13 @@ final class MediaService {
 enum MediaServiceError: LocalizedError {
     case imageEncodingFailed
     case uploadFailed
+    case tooLarge
 
     var errorDescription: String? {
         switch self {
         case .imageEncodingFailed: return "Could not encode the selected image."
         case .uploadFailed: return "The upload failed. Please try again."
+        case .tooLarge: return "Each file must be 20 MB or smaller. Please choose a smaller one."
         }
     }
 }

@@ -478,6 +478,18 @@ describe("media", () => {
     const doc = writesFor("progressItems/P/activities/A/media/M")[0];
     expect(doc.data).toMatchObject({ type: "image", uploadedBy: "U", sizeBytes: 4242, width: 100 });
   });
+
+  it("commitMedia rejects a file over the 20 MB limit", async () => {
+    storage.__setFile("activities/P/A/M.jpg", true, 21 * 1024 * 1024);
+    await expect(
+      media.commitMedia(
+        ctx({
+          params: { pid: "P", aid: "A" },
+          body: { mediaId: "M", storagePath: "activities/P/A/M.jpg", type: "image" },
+        })
+      )
+    ).rejects.toMatchObject({ status: 400 });
+  });
 });
 
 // --- users + moderation ---------------------------------------------------

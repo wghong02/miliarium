@@ -20,7 +20,7 @@ import { serializeMedia, compact } from "./serialize";
 const db = getFirestore();
 const storage = getStorage();
 
-const MAX_MEDIA_BYTES = 200 * 1024 * 1024; // 200 MB
+const MAX_MEDIA_BYTES = 20 * 1024 * 1024; // 20 MB per file
 const UPLOAD_URL_TTL_MS = 15 * 60 * 1000;
 
 function mediaCollectionRef(pid: string, aid: string) {
@@ -113,7 +113,7 @@ export async function commitMedia(ctx: RequestContext): Promise<{ ok: true }> {
   const size = Number(meta.size ?? 0);
   if (size > MAX_MEDIA_BYTES) {
     await file.delete().catch(() => undefined);
-    throw badRequest("File is too large.");
+    throw badRequest("Each file must be 20 MB or smaller.");
   }
 
   const doc: Record<string, unknown> = {
