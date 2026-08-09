@@ -57,21 +57,22 @@ gcloud iam service-accounts add-iam-policy-binding "$SA" --project "$PROJECT" \
 
 ## 4. 🔴 Create the Firestore composite indexes
 
-Several backend queries need composite indexes. The **easiest path**: run the app
-against the deployed backend, watch `firebase functions:log` for
-`FAILED_PRECONDITION … create it here: <link>` errors, and click each link to
-create the index. The ones you'll need:
+The required indexes are declared in `backend/firestore.indexes.json` and wired
+into `firebase.json`, so just deploy them:
 
-| Collection | Fields |
-|---|---|
-| `invitations` | `fromUserId` ==, `toUserId` ==, `progressItemId` == (send dedup) |
-| `invitations` | `toUserId` ==, `createdAt` desc (received) |
-| `invitations` | `fromUserId` ==, `createdAt` desc (sent) |
-| `invitations` | `fromUserId` ==, `progressItemId` ==, `createdAt` desc (Invited Users panel) |
-| `progressLinks` (collection group) | `progressItemId` == (cascade + activity push) |
+```bash
+cd backend
+firebase deploy --only firestore:indexes
+```
 
-The `progressLinks` collection-group index is pre-existing (used by the delete
-cascade and activity push); the rest are new with this migration.
+(A full `firebase deploy` includes them too.) They cover the invitation
+send-dedup, received/sent lists, the Invited Users panel query, and the
+`progressLinks` collection-group query used by the cascade + activity push.
+Building the indexes takes a few minutes; queries return
+`FAILED_PRECONDITION` until they finish. If you ever see that error with a
+"create it here" link in `firebase functions:log`, it means a query needs an
+index not yet in the file — click the link, then add it to
+`firestore.indexes.json`.
 
 ## 5. 🟡 Enable and lock down security rules
 
