@@ -1,0 +1,98 @@
+import SwiftUI
+import FirebaseCore
+import FirebaseAuth
+
+@main
+struct MiliariumApp: App {
+    /// `@State` defaults run before `init()`, so Firebase must be configured here—not only in `init()`.
+    @State private var auth: AuthViewModel = {
+        if FirebaseApp.app() == nil {
+            FirebaseApp.configure()
+        }
+        return AuthViewModel()
+    }()
+
+    @State private var progressStore = ProgressStore()
+    @State private var invitationVM = InvitationViewModel()
+    @State private var onboardingState = OnboardingState()
+
+    /// Bridges UIKit's `UIApplicationDelegate` callbacks (APNS token
+    /// delivery, registration failures) into the SwiftUI lifecycle so
+    /// `NotificationService` can persist the token.
+    @UIApplicationDelegateAdaptor(MiliariumAppDelegate.self) private var appDelegate
+
+    /// Drives badge-clearing: when the scene returns to `.active` we reset
+    /// the app-icon badge so the red number disappears on app open.
+    @Environment(\.scenePhase) private var scenePhase
+
+    /// True when the app is launched by the UI test suite (which passes
+    /// `-uitest-reset-auth`). Used to suppress the system notification
+    /// permission alert — that springboard alert pops over the app on
+    /// sign-in and blocks/queries-timeout the UI automation.
+    private var isUITesting: Bool {
+        ProcessInfo.processInfo.arguments.contains("-uitest-reset-auth")
+    }
+
+    var body: some Scene {
+        WindowGroup {
+            ContentView()
+                .environment(auth)
+                .environment(progressStore)
+                .environment(invitationVM)
+                .environment(onboardingState)
+                .onAppear {
+                    progressStore.updateUserId(auth.user?.uid)
+                    invitationVM.setUserId(auth.user?.uid)
+                    // Clear the badge on cold launch. `.onChange(of: scenePhase)`
+                    // doesn't fire for the initial `.active` value, so handle
+                    // the launch case here; warm foregrounds go through onChange.
+                    Task { await notificationService.clearBadge() }
+                    // App launched into a signed-in state (Firebase
+                    // restored the session) — request push permission and
+                    // sync any cached APNS token. No-op if the user is
+                    // signed out (the permission dialog should only appear
+                    // after sign-in for a coherent UX).
+                    if let uid = auth.user?.uid, !isUITesting {
+                        Task {
+                            await notificationService.requestPermission()
+                            await notificationService.syncTokenToFirestore(userId: uid)
+                        }
+                    }
+                }
+                .onChange(of: auth.user?.uid) { oldValue, newValue in
+                    progressStore.updateUserId(newValue)
+                    invitationVM.setUserId(newValue)
+                    if newValue == nil {
+                        widgetSnapshotService.stop()
+                        // Sign-out: drop this device's token from the user
+                        // we're leaving so they stop receiving pushes here.
+                        if let oldValue {
+                            Task { await notificationService.removeTokenFromFirestore(userId: oldValue) }
+                        }
+                    } else if let newValue, !isUITesting {
+                        // Sign-in: surface the permission prompt (no-op if
+                        // already decided) and sync any cached APNS token.
+                        // Skipped under UI testing so the system notification
+                        // alert doesn't block automation.
+                        Task {
+                            await notificationService.requestPermission()
+                            await notificationService.syncTokenToFirestore(userId: newValue)
+                        }
+                    }
+                }
+                // Re-sync the widget's per-progress listeners whenever the
+                // accessible-progresses set changes. Map to IDs so SwiftUI
+                // can compare arrays for equality.
+                .onChange(of: progressStore.progresses.map(\.id)) { _, _ in
+                    widgetSnapshotService.update(progresses: progressStore.progresses)
+                }
+                // Clear the app-icon badge each time the app returns to the
+                // foreground, so the red number resets once the user opens it.
+                .onChange(of: scenePhase) { _, newPhase in
+                    if newPhase == .active {
+                        Task { await notificationService.clearBadge() }
+                    }
+                }
+        }
+    }
+}

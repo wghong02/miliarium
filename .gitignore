@@ -1,25 +1,14 @@
-# Xcode
-*.xcodeproj/xcuserdata/
-*.xcworkspace/
-DerivedData/
-.derivedData/
-.DS_Store
-build/
-*.pbxuser
-*.mode1v3
-*.xcworkspace
-
-# SPM
-.swiftpm/
-.build/
-
-# IDE
-.vscode/
-.idea/
-
-# Firebase (optional—keep this private)
-GoogleService-Info.plist
+# Repo-level ignores. Per-project rules live in ios/.gitignore and
+# backend/.gitignore.
 
 # macOS
+.DS_Store
 .AppleDouble
 .LSOverride
+
+# Xcode derived data (if it ever lands at the repo root)
+.derivedData/
+DerivedData/
+
+# Claude Code local settings
+.claude/settings.local.json
