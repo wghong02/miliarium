@@ -55,8 +55,9 @@ final class ModerationService {
     }
 
     func fetchBlockedUserIds(for userId: String) async throws -> [String] {
-        let snapshot = try await blockedRef(for: userId).getDocuments()
-        return snapshot.documents.map { $0.documentID }
+        struct Response: Decodable { let ids: [String] }
+        let response: Response = try await BackendClient.shared.send("GET", "/me/blocked-users")
+        return response.ids
     }
 
     /// Live listener for the set of user IDs this user has blocked. `onChange`

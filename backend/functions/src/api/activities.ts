@@ -9,6 +9,7 @@ import { getFirestore, FieldValue } from "firebase-admin/firestore";
 import { RequestContext, requireString, notFound } from "./http";
 import { assertProgressMember } from "./auth";
 import { activityDocFromBody } from "./encode";
+import { serializeActivity, compact } from "./serialize";
 
 const db = getFirestore();
 
@@ -16,6 +17,32 @@ const activitiesRef = (pid: string) =>
   db.collection("progressItems").doc(pid).collection("activities");
 const collectionsRef = (pid: string) =>
   db.collection("progressItems").doc(pid).collection("collections");
+
+/**
+ * GET /progress/:pid/activities — all activities (newest first). With
+ * `?withTime=1`, only those that have a `timestamp`, ordered ascending (for the
+ * Calendar view). Map/location filtering is done client-side on the full list.
+ */
+export async function listActivities(
+  ctx: RequestContext
+): Promise<{ activities: unknown[] }> {
+  const pid = ctx.params.pid;
+  await assertProgressMember(ctx.uid, pid);
+
+  const q =
+    ctx.query.withTime === "1"
+      ? activitiesRef(pid).orderBy("timestamp", "asc")
+      : activitiesRef(pid).orderBy("createdAt", "desc");
+  const snap = await q.get();
+  return { activities: compact(snap.docs.map(serializeActivity)) };
+}
+
+/** GET /progress/:pid/activities/:aid — a single activity (null if missing). */
+export async function getActivity(ctx: RequestContext): Promise<unknown> {
+  const { pid, aid } = ctx.params;
+  await assertProgressMember(ctx.uid, pid);
+  return serializeActivity(await activitiesRef(pid).doc(aid).get());
+}
 
 /** POST /progress/:pid/activities — create; link into each collection. */
 export async function createActivity(ctx: RequestContext): Promise<{ id: string }> {

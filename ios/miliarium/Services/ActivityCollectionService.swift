@@ -18,12 +18,6 @@ class ActivityCollectionService {
             .collection("collections")
     }
 
-    private func activitiesRef(for progressItemId: String) -> CollectionReference {
-        db.collection("progressItems")
-            .document(progressItemId)
-            .collection("activities")
-    }
-
     // MARK: - Create
 
     func createCollection(
@@ -53,13 +47,15 @@ class ActivityCollectionService {
 
     // MARK: - Read
 
+    private struct CollectionsResponse: Decodable { let collections: [ActivityCollection] }
+
     func fetchCollections(for progressItemId: String) async throws -> [ActivityCollection] {
         AppLogger.activityCollection.debug("fetchCollections progressId=\(progressItemId)")
         do {
-            let snapshot = try await collectionsRef(for: progressItemId)
-                .order(by: "createdAt", descending: false)
-                .getDocuments()
-            return snapshot.documents.compactMap { ActivityCollection(document: $0) }
+            let response: CollectionsResponse = try await BackendClient.shared.send(
+                "GET", "/progress/\(progressItemId)/collections"
+            )
+            return response.collections
         } catch {
             AppLogger.activityCollection.error("fetchCollections failed progressId=\(progressItemId): \(error)")
             throw error
@@ -69,10 +65,9 @@ class ActivityCollectionService {
     func fetchCollection(id: String, for progressItemId: String) async throws -> ActivityCollection? {
         AppLogger.activityCollection.debug("fetchCollection id=\(id) progressId=\(progressItemId)")
         do {
-            let doc = try await collectionsRef(for: progressItemId)
-                .document(id)
-                .getDocument()
-            return ActivityCollection(document: doc)
+            return try await BackendClient.shared.send(
+                "GET", "/progress/\(progressItemId)/collections/\(id)"
+            )
         } catch {
             AppLogger.activityCollection.error("fetchCollection failed id=\(id): \(error)")
             throw error
@@ -143,10 +138,9 @@ class ActivityCollectionService {
     ) async throws -> ActivityCollection {
         AppLogger.activityCollection.debug("refreshStats collectionId=\(collection.id) progressId=\(progressItemId)")
         do {
-            // Compute stats client-side (reads stay client-side in this phase),
-            // then persist the result through the backend.
-            let snapshot = try await activitiesRef(for: progressItemId).getDocuments()
-            let allActivities = snapshot.documents.compactMap { Activity(document: $0) }
+            // Fetch the progress's activities (via the backend) and compute the
+            // stats client-side, then persist the result through the backend.
+            let allActivities = try await activityService.fetchActivities(for: progressItemId)
 
             let memberIds = Set(collection.activityIds)
             let members = allActivities.filter { memberIds.contains($0.id) }

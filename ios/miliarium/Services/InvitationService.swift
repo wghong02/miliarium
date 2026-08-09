@@ -15,46 +15,46 @@ class InvitationService {
 
     // MARK: - Read
 
-    /// Invitations addressed to `userId` (i.e. the recipient view).
+    private struct InvitationsResponse: Decodable { let invitations: [Invitation] }
+
+    /// Invitations addressed to `userId` (i.e. the recipient view). Scoped to
+    /// the caller server-side, so `userId` is only for call-site compatibility.
     func fetchReceivedInvitations(for userId: String) async throws -> [Invitation] {
         AppLogger.invitation.debug("fetchReceivedInvitations userId=\(userId)")
         do {
-            let snapshot = try await invitationsRef()
-                .whereField("toUserId", isEqualTo: userId)
-                .order(by: "createdAt", descending: true)
-                .getDocuments()
-            return snapshot.documents.compactMap { Invitation(document: $0) }
+            let response: InvitationsResponse = try await BackendClient.shared.send(
+                "GET", "/invitations?role=received"
+            )
+            return response.invitations
         } catch {
             AppLogger.invitation.error("fetchReceivedInvitations failed userId=\(userId): \(error)")
             throw error
         }
     }
 
-    /// Invitations the given user has *sent* (owner view).
+    /// Invitations the caller has *sent* (owner view).
     func fetchSentInvitations(by userId: String) async throws -> [Invitation] {
         AppLogger.invitation.debug("fetchSentInvitations userId=\(userId)")
         do {
-            let snapshot = try await invitationsRef()
-                .whereField("fromUserId", isEqualTo: userId)
-                .order(by: "createdAt", descending: true)
-                .getDocuments()
-            return snapshot.documents.compactMap { Invitation(document: $0) }
+            let response: InvitationsResponse = try await BackendClient.shared.send(
+                "GET", "/invitations?role=sent"
+            )
+            return response.invitations
         } catch {
             AppLogger.invitation.error("fetchSentInvitations failed userId=\(userId): \(error)")
             throw error
         }
     }
 
-    /// All invitations associated with a single progress, regardless of
-    /// direction. Used by the owner-side "Invited Users" panel.
+    /// Invitations the caller sent for a single progress. Used by the owner-side
+    /// "Invited Users" panel (the backend scopes to `fromUserId == caller`).
     func fetchInvitations(forProgress progressItemId: String) async throws -> [Invitation] {
         AppLogger.invitation.debug("fetchInvitations progressId=\(progressItemId)")
         do {
-            let snapshot = try await invitationsRef()
-                .whereField("progressItemId", isEqualTo: progressItemId)
-                .order(by: "createdAt", descending: true)
-                .getDocuments()
-            return snapshot.documents.compactMap { Invitation(document: $0) }
+            let response: InvitationsResponse = try await BackendClient.shared.send(
+                "GET", "/invitations?progressItemId=\(progressItemId)"
+            )
+            return response.invitations
         } catch {
             AppLogger.invitation.error("fetchInvitations failed progressId=\(progressItemId): \(error)")
             throw error
@@ -201,14 +201,19 @@ class InvitationService {
         }
     }
 
-    /// Real-time listener for all invitations attached to one progress
-    /// (used by the owner-side "Invited Users" panel).
+    /// Real-time listener for the invitations the owner sent for one progress
+    /// (used by the owner-side "Invited Users" panel). Constrained by
+    /// `fromUserId` so the read is satisfiable under the participant-scoped
+    /// security rules (the owner is always the sender). Requires a composite
+    /// index on (fromUserId, progressItemId, createdAt).
     func setProgressInvitationsListener(
         for progressItemId: String,
+        ownerUserId: String,
         onChange: @escaping ([Invitation]) -> Void
     ) -> ListenerRegistration {
         AppLogger.invitation.debug("setProgressInvitationsListener progressId=\(progressItemId)")
         let query = invitationsRef()
+            .whereField("fromUserId", isEqualTo: ownerUserId)
             .whereField("progressItemId", isEqualTo: progressItemId)
             .order(by: "createdAt", descending: true)
         return query.addSnapshotListener { snapshot, error in

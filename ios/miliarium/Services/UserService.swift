@@ -1,14 +1,8 @@
 import Foundation
 import OSLog
-import FirebaseFirestore
 
-/// CRUD + bulk fetch for `users/{userId}` documents.
+/// Reads + edits `users/{userId}` profiles, all via the backend API.
 class UserService {
-    private let db = Firestore.firestore()
-
-    private func usersRef() -> CollectionReference {
-        db.collection("users")
-    }
 
     // MARK: - Create / upsert
     //
@@ -21,38 +15,26 @@ class UserService {
     func fetchUser(id: String) async throws -> AppUser? {
         AppLogger.user.debug("fetchUser id=\(id)")
         do {
-            let doc = try await usersRef().document(id).getDocument()
-            return AppUser(document: doc)
+            return try await BackendClient.shared.send("GET", "/users/\(id)")
         } catch {
             AppLogger.user.error("fetchUser failed id=\(id): \(error)")
             throw error
         }
     }
 
-    /// Bulk fetch by user IDs. Reads each doc by ID in parallel rather than
-    /// via a `whereField(documentID, in:)` query — a document-ID `in` query is
-    /// a collection *list* operation, which security rules must keep locked to
-    /// prevent enumeration of the `users` collection; by-ID `get`s don't.
+    /// Bulk fetch by user IDs (backend resolves them; no client `users` query).
     func fetchUsers(ids: [String]) async throws -> [AppUser] {
         let uniqueIds = Array(Set(ids))
         guard !uniqueIds.isEmpty else { return [] }
 
         AppLogger.user.debug("fetchUsers count=\(uniqueIds.count)")
-        let usersCollection = usersRef()
+        struct Response: Decodable { let users: [AppUser] }
         do {
-            return try await withThrowingTaskGroup(of: AppUser?.self) { group in
-                for id in uniqueIds {
-                    group.addTask {
-                        let doc = try await usersCollection.document(id).getDocument()
-                        return AppUser(document: doc)
-                    }
-                }
-                var results: [AppUser] = []
-                for try await user in group {
-                    if let user { results.append(user) }
-                }
-                return results
-            }
+            let idsParam = uniqueIds.joined(separator: ",")
+            let response: Response = try await BackendClient.shared.send(
+                "GET", "/users?ids=\(idsParam)"
+            )
+            return response.users
         } catch {
             AppLogger.user.error("fetchUsers failed: \(error)")
             throw error

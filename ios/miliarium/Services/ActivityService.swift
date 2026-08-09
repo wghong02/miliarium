@@ -70,13 +70,15 @@ class ActivityService {
 
     // MARK: - Read
 
+    private struct ActivitiesResponse: Decodable { let activities: [Activity] }
+
     func fetchActivities(for progressItemId: String) async throws -> [Activity] {
         AppLogger.activity.debug("fetchActivities progressId=\(progressItemId)")
         do {
-            let snapshot = try await activitiesRef(for: progressItemId)
-                .order(by: "createdAt", descending: true)
-                .getDocuments()
-            return snapshot.documents.compactMap { Activity(document: $0) }
+            let response: ActivitiesResponse = try await BackendClient.shared.send(
+                "GET", "/progress/\(progressItemId)/activities"
+            )
+            return response.activities
         } catch {
             AppLogger.activity.error("fetchActivities failed progressId=\(progressItemId): \(error)")
             throw error
@@ -86,10 +88,9 @@ class ActivityService {
     func fetchActivity(id: String, for progressItemId: String) async throws -> Activity? {
         AppLogger.activity.debug("fetchActivity id=\(id) progressId=\(progressItemId)")
         do {
-            let doc = try await activitiesRef(for: progressItemId)
-                .document(id)
-                .getDocument()
-            return Activity(document: doc)
+            return try await BackendClient.shared.send(
+                "GET", "/progress/\(progressItemId)/activities/\(id)"
+            )
         } catch {
             AppLogger.activity.error("fetchActivity failed id=\(id): \(error)")
             throw error
@@ -100,11 +101,10 @@ class ActivityService {
     func fetchActivitiesWithTime(for progressItemId: String) async throws -> [Activity] {
         AppLogger.activity.debug("fetchActivitiesWithTime progressId=\(progressItemId)")
         do {
-            let snapshot = try await activitiesRef(for: progressItemId)
-                .whereField("timestamp", isGreaterThan: Timestamp(date: .distantPast))
-                .order(by: "timestamp", descending: false)
-                .getDocuments()
-            return snapshot.documents.compactMap { Activity(document: $0) }
+            let response: ActivitiesResponse = try await BackendClient.shared.send(
+                "GET", "/progress/\(progressItemId)/activities?withTime=1"
+            )
+            return response.activities
         } catch {
             AppLogger.activity.error("fetchActivitiesWithTime failed progressId=\(progressItemId): \(error)")
             throw error

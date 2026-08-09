@@ -82,7 +82,8 @@ struct InvitedUsersPanelView: View {
 
         isLoading = true
         listener = invitationService.setProgressInvitationsListener(
-            for: progressItemId
+            for: progressItemId,
+            ownerUserId: userId
         ) { invitations in
             // Listener fires off-MainActor; hop before mutating @State.
             Task { @MainActor in

@@ -15,6 +15,7 @@ import { getFirestore, FieldValue } from "firebase-admin/firestore";
 import { getStorage } from "firebase-admin/storage";
 import { RequestContext, requireString, badRequest } from "./http";
 import { assertProgressMember } from "./auth";
+import { serializeMedia, compact } from "./serialize";
 
 const db = getFirestore();
 const storage = getStorage();
@@ -22,14 +23,27 @@ const storage = getStorage();
 const MAX_MEDIA_BYTES = 200 * 1024 * 1024; // 200 MB
 const UPLOAD_URL_TTL_MS = 15 * 60 * 1000;
 
-function mediaRef(pid: string, aid: string, mediaId: string) {
+function mediaCollectionRef(pid: string, aid: string) {
   return db
     .collection("progressItems")
     .doc(pid)
     .collection("activities")
     .doc(aid)
-    .collection("media")
-    .doc(mediaId);
+    .collection("media");
+}
+
+function mediaRef(pid: string, aid: string, mediaId: string) {
+  return mediaCollectionRef(pid, aid).doc(mediaId);
+}
+
+/** GET /progress/:pid/activities/:aid/media — media for an activity (newest first). */
+export async function listMedia(ctx: RequestContext): Promise<{ media: unknown[] }> {
+  const { pid, aid } = ctx.params;
+  await assertProgressMember(ctx.uid, pid);
+  const snap = await mediaCollectionRef(pid, aid)
+    .orderBy("uploadedAt", "desc")
+    .get();
+  return { media: compact(snap.docs.map(serializeMedia)) };
 }
 
 /** A short, safe file extension (alphanumeric, ≤5 chars). */

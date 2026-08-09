@@ -30,6 +30,16 @@ export async function createReport(ctx: RequestContext): Promise<{ ok: true }> {
   return { ok: true };
 }
 
+/** GET /me/blocked-users — ids the caller has blocked. */
+export async function listBlockedUsers(ctx: RequestContext): Promise<{ ids: string[] }> {
+  const snap = await db
+    .collection("users")
+    .doc(ctx.uid)
+    .collection("blockedUsers")
+    .get();
+  return { ids: snap.docs.map((d) => d.id) };
+}
+
 /** PUT /me/blocked-users/:id — block a user. */
 export async function blockUser(ctx: RequestContext): Promise<{ ok: true }> {
   const blockedUserId = ctx.params.id;

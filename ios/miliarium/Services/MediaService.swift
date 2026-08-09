@@ -225,18 +225,16 @@ final class MediaService {
 
     // MARK: - Read
 
-    /// Fetches all media for an activity, newest first.
+    /// Fetches all media for an activity, newest first (via the backend).
     func fetchMedia(
         progressItemId: String,
         activityId: String
     ) async throws -> [ActivityMedia] {
-        let snapshot = try await mediaCollection(
-            progressItemId: progressItemId,
-            activityId: activityId
+        struct Response: Decodable { let media: [ActivityMedia] }
+        let response: Response = try await BackendClient.shared.send(
+            "GET", "/progress/\(progressItemId)/activities/\(activityId)/media"
         )
-        .order(by: "uploadedAt", descending: true)
-        .getDocuments()
-        return snapshot.documents.compactMap { ActivityMedia(document: $0) }
+        return response.media
     }
 
     /// Live listener for the media subcollection.

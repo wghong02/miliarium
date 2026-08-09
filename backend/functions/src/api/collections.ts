@@ -9,12 +9,30 @@ import { getFirestore, FieldValue, Timestamp } from "firebase-admin/firestore";
 import { RequestContext, requireString, optionalString, badRequest } from "./http";
 import { assertProgressMember } from "./auth";
 import { LIMITS, clampText } from "./limits";
+import { serializeCollection, compact } from "./serialize";
 
 const db = getFirestore();
 const NOTES_MAX = 5000;
 
 const collectionsRef = (pid: string) =>
   db.collection("progressItems").doc(pid).collection("collections");
+
+/** GET /progress/:pid/collections — all collections (oldest first). */
+export async function listCollections(
+  ctx: RequestContext
+): Promise<{ collections: unknown[] }> {
+  const pid = ctx.params.pid;
+  await assertProgressMember(ctx.uid, pid);
+  const snap = await collectionsRef(pid).orderBy("createdAt", "asc").get();
+  return { collections: compact(snap.docs.map(serializeCollection)) };
+}
+
+/** GET /progress/:pid/collections/:cid — a single collection (null if missing). */
+export async function getCollection(ctx: RequestContext): Promise<unknown> {
+  const { pid, cid } = ctx.params;
+  await assertProgressMember(ctx.uid, pid);
+  return serializeCollection(await collectionsRef(pid).doc(cid).get());
+}
 
 /** POST /progress/:pid/collections — create (client supplies the id). */
 export async function createCollection(ctx: RequestContext): Promise<{ id: string }> {

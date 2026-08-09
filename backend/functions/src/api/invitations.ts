@@ -16,6 +16,7 @@ import {
 } from "./http";
 import { assertProgressMember } from "./auth";
 import { LIMITS, clampText } from "./limits";
+import { serializeInvitation, compact } from "./serialize";
 
 const db = getFirestore();
 
@@ -23,6 +24,31 @@ async function loadInvitation(id: string) {
   const snap = await db.collection("invitations").doc(id).get();
   if (!snap.exists) throw notFound("Invitation not found.");
   return snap;
+}
+
+/**
+ * GET /invitations — the caller's invitations, always scoped to them:
+ *   ?role=received (default)  → toUserId == me
+ *   ?role=sent                → fromUserId == me
+ *   ?progressItemId=X         → fromUserId == me AND progressItemId == X
+ */
+export async function listInvitations(
+  ctx: RequestContext
+): Promise<{ invitations: unknown[] }> {
+  const { role, progressItemId } = ctx.query;
+  let q: FirebaseFirestore.Query;
+  if (progressItemId) {
+    q = db
+      .collection("invitations")
+      .where("fromUserId", "==", ctx.uid)
+      .where("progressItemId", "==", progressItemId);
+  } else if (role === "sent") {
+    q = db.collection("invitations").where("fromUserId", "==", ctx.uid);
+  } else {
+    q = db.collection("invitations").where("toUserId", "==", ctx.uid);
+  }
+  const snap = await q.orderBy("createdAt", "desc").get();
+  return { invitations: compact(snap.docs.map(serializeInvitation)) };
 }
 
 /**
