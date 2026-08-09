@@ -57,20 +57,42 @@ As the codebase grows, split related triggers into their own files
    deploy on Spark (free) — Blaze is pay-as-you-go with a generous free
    tier. Upgrade at <https://console.firebase.google.com/project/_/usage/details>.
 
-## Security rules (⚠️ not yet deployed)
+## The `api` function (client mutations)
 
-`firestore.rules` and `storage.rules` at the repo root are **drafts** and are
-intentionally **not** referenced by `firebase.json` yet — the client currently
-relies on whatever rules exist in the Firebase console. Until these are wired
-in, any authenticated user can read/write another user's data.
+All client writes go through a single Gen2 HTTPS function, `api`
+(`src/api/`). The iOS app calls it with the user's Firebase ID token in an
+`Authorization: Bearer` header; handlers verify the token, enforce
+ownership/membership with the Admin SDK, and perform the writes. Reads and
+realtime listeners still run client-side (this is a writes-only migration).
+
+**Signed media uploads.** Media isn't proxied through the function: `POST
+.../media/upload-url` returns a short-lived V4 signed URL, the client PUTs the
+bytes straight to Cloud Storage, then commits the metadata doc. Signing V4 URLs
+from a deployed function requires the function's runtime **service account to
+have the "Service Account Token Creator" role on itself** (so the Admin SDK can
+call IAM `signBlob`). Grant it once:
+
+```bash
+SA="$(gcloud iam service-accounts list --format='value(email)' --filter='displayName:Default compute service account')"
+gcloud iam service-accounts add-iam-policy-binding "$SA" \
+  --member="serviceAccount:$SA" --role="roles/iam.serviceAccountTokenCreator"
+```
+
+## Security rules (⚠️ drafts — not yet deployed)
+
+`firestore.rules` and `storage.rules` are **drafts** and are intentionally **not**
+referenced by `firebase.json` yet. Now that the backend owns all writes, the
+model is simple: **client reads** are gated by owner/collaborator membership and
+**all client writes are denied**. Until these are wired in, the console rules
+still apply.
 
 Before enabling them:
 
 1. Add rules unit tests with `@firebase/rules-unit-testing` covering the client
-   access patterns listed at the bottom of `firestore.rules`.
+   READ queries listed at the bottom of `firestore.rules`.
 2. Validate against the emulator: `firebase emulators:start --only firestore,storage`.
-3. Apply the **companion code changes** documented in the header of
-   `firestore.rules` (server-maintained `progressItems.collaboratorIds`, etc.).
+3. Apply the remaining **companion change** in the header of `firestore.rules`
+   (constrain the owner "Invited Users" invitations query by `fromUserId`).
 4. Wire them in — add to `firebase.json`:
    ```json
    "firestore": { "rules": "firestore.rules" },
@@ -141,6 +163,9 @@ while `npm run serve` is running.
 Each trigger lives in its own file under `src/` and is re-exported from
 `index.ts`:
 
+- **`api`** (`src/api/`) — HTTPS endpoint fronting every client mutation
+  (progress, activities, collections, media, invitations, profile, device
+  tokens, moderation). See "The `api` function" above.
 - **`onActivityCreated`** (`pushNotifications.ts`) — notify collaborators
   (everyone with a `progressLinks/{id}` doc except the writer) when a new
   activity is added. Invitations intentionally do **not** send a push — they
@@ -149,5 +174,6 @@ Each trigger lives in its own file under `src/` and is re-exported from
   / `onUserDeleted`** (`cascadeDeletes.ts`) — relational cascade cleanup.
 - **`onMediaDeleted` / `onActivityDeleted`** (`mediaCleanup.ts`) — Storage
   cleanup for deleted media/activities.
-- **`onAuthUserDeleted`** (`accountDeletion.ts`) — deletes the `users/{uid}`
-  doc when the Auth account is deleted, which fans out to the cascade above.
+- **`onAuthUserCreated` / `onAuthUserDeleted`** (`accountCreation.ts` /
+  `accountDeletion.ts`) — create the `users/{uid}` doc on signup and delete it
+  on account deletion (which fans out to the cascade above).

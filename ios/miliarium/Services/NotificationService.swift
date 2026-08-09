@@ -1,7 +1,6 @@
 import Foundation
 import UIKit
 import UserNotifications
-import FirebaseFirestore
 import FirebaseMessaging
 internal import os
 
@@ -32,8 +31,6 @@ internal import os
 ///       createdAt (server, first write only), lastSeenAt (every sync)
 @MainActor
 final class NotificationService {
-    private let db = Firestore.firestore()
-
     /// Most recent FCM registration token. `nil` before FCM has delivered
     /// one (typical at first launch before APNS exchange completes).
     private(set) var currentToken: String?
@@ -98,67 +95,62 @@ final class NotificationService {
         }
     }
 
-    // MARK: - Firestore upsert / delete
+    // MARK: - Token sync (via backend)
 
-    /// Upserts `currentToken` to `users/{userId}/deviceTokens/{token}`.
-    /// Safe to call repeatedly — `createdAt` is preserved across re-syncs
-    /// because we only include it on the first write.
+    /// Upserts `currentToken` through the backend (`PUT /me/device-tokens`).
+    /// The server preserves `createdAt` and stamps `lastSeenAt`. `userId` is
+    /// implied by the auth token and kept only for call-site compatibility.
     func syncTokenToFirestore(userId: String) async {
         guard let token = currentToken else {
             AppLogger.notification.debug("syncTokenToFirestore skipped: no cached token yet")
             return
         }
-        let docRef = tokenDocRef(userId: userId, token: token)
+        struct Body: Encodable {
+            let token: String
+            let appVersion: String
+            let osVersion: String
+        }
         do {
-            // Read first so we can preserve `createdAt` on subsequent writes.
-            let snapshot = try await docRef.getDocument()
-            var data: [String: Any] = [
-                "token": token,
-                "userId": userId,
-                "platform": "ios",
-                "appVersion": Self.appVersion,
-                "osVersion": UIDevice.current.systemVersion,
-                "lastSeenAt": Timestamp(date: Date()),
-            ]
-            if !snapshot.exists {
-                data["createdAt"] = FieldValue.serverTimestamp()
-            }
-            try await docRef.setData(data, merge: true)
-            AppLogger.notification.debug("syncTokenToFirestore succeeded userId=\(userId) tokenPrefix=\(token.prefix(8))")
+            try await BackendClient.shared.request(
+                "PUT", "/me/device-tokens",
+                body: Body(
+                    token: token,
+                    appVersion: Self.appVersion,
+                    osVersion: UIDevice.current.systemVersion
+                )
+            )
+            AppLogger.notification.debug("syncToken succeeded tokenPrefix=\(token.prefix(8))")
         } catch {
-            AppLogger.notification.error("syncTokenToFirestore failed userId=\(userId): \(error.localizedDescription)")
+            AppLogger.notification.error("syncToken failed: \(error.localizedDescription)")
         }
     }
 
-    /// Removes this device's token doc from the given user. Call on
-    /// sign-out so the previous user no longer receives pushes meant for
-    /// them from this device. The local `currentToken` is preserved so
-    /// the next sign-in can re-attach it without waiting for FCM again.
+    /// Removes this device's token via the backend. Call on sign-out so the
+    /// previous user no longer receives pushes from this device. `currentToken`
+    /// is preserved so the next sign-in can re-attach it.
     func removeTokenFromFirestore(userId: String) async {
         guard let token = currentToken else {
-            AppLogger.notification.debug("removeTokenFromFirestore skipped: no cached token")
+            AppLogger.notification.debug("removeToken skipped: no cached token")
             return
         }
         await removeTokenFromFirestore(userId: userId, token: token)
     }
 
-    /// Explicit-token variant used during FCM rotation to clean up the
-    /// previous (now-dead) token doc without disturbing `currentToken`.
+    /// Explicit-token variant used during FCM rotation to clean up the previous
+    /// (now-dead) token without disturbing `currentToken`.
     func removeTokenFromFirestore(userId: String, token: String) async {
+        struct Body: Encodable { let token: String }
         do {
-            try await tokenDocRef(userId: userId, token: token).delete()
-            AppLogger.notification.debug("removeTokenFromFirestore succeeded userId=\(userId) tokenPrefix=\(token.prefix(8))")
+            try await BackendClient.shared.request(
+                "POST", "/me/device-tokens/remove", body: Body(token: token)
+            )
+            AppLogger.notification.debug("removeToken succeeded tokenPrefix=\(token.prefix(8))")
         } catch {
-            AppLogger.notification.error("removeTokenFromFirestore failed userId=\(userId): \(error.localizedDescription)")
+            AppLogger.notification.error("removeToken failed: \(error.localizedDescription)")
         }
     }
 
     // MARK: - Helpers
-
-    private func tokenDocRef(userId: String, token: String) -> DocumentReference {
-        db.collection("users").document(userId)
-            .collection("deviceTokens").document(token)
-    }
 
     private static var appVersion: String {
         Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "unknown"

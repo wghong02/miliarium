@@ -11,45 +11,10 @@ class UserService {
     }
 
     // MARK: - Create / upsert
-
-    /// Idempotent: creates the user doc if missing, otherwise backfills any
-    /// missing fields (`userId`, `email`). Safe to call on every sign-in.
-    func ensureUserExists(userId: String, email: String?) async throws {
-        AppLogger.user.debug("ensureUserExists userId=\(userId)")
-        do {
-            let ref = usersRef().document(userId)
-            let doc = try await ref.getDocument()
-
-            if !doc.exists {
-                AppLogger.user.debug("ensureUserExists: creating new user doc userId=\(userId)")
-                let user = AppUser(id: userId, email: email)
-                try await ref.setData(user.asFirestoreMap())
-                return
-            }
-
-            // Backfill any missing fields without overwriting existing values.
-            let data = doc.data() ?? [:]
-            var updates: [String: Any] = [:]
-
-            if data["userId"] as? String != userId {
-                updates["userId"] = userId
-            }
-            if let email,
-               !email.isEmpty,
-               (data["email"] as? String) != email {
-                updates["email"] = email
-            }
-
-            if !updates.isEmpty {
-                AppLogger.user.debug("ensureUserExists: backfilling fields \(updates.keys.joined(separator: ",")) userId=\(userId)")
-                updates["updatedAt"] = Timestamp(date: Date())
-                try await ref.updateData(updates)
-            }
-        } catch {
-            AppLogger.user.error("ensureUserExists failed userId=\(userId): \(error)")
-            throw error
-        }
-    }
+    //
+    // The `users/{uid}` doc is created server-side by the `onAuthUserCreated`
+    // auth trigger on signup (backend/accountCreation.ts) — the client no longer
+    // upserts it.
 
     // MARK: - Read
 
@@ -109,19 +74,16 @@ class UserService {
 
     // MARK: - Update
 
-    /// Sets or clears the user's display name.
+    /// Sets or clears the user's display name via the backend (`PATCH /me`).
+    /// A `nil`/blank name clears it. `userId` is implied by the auth token and
+    /// kept only for call-site compatibility.
     func updateName(userId: String, name: String?) async throws {
         AppLogger.user.debug("updateName userId=\(userId) name=\(name ?? "<cleared>")")
+        struct Body: Encodable { let name: String? }
+        let cleaned = name?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let value = (cleaned?.isEmpty ?? true) ? nil : cleaned
         do {
-            var updates: [String: Any] = [
-                "updatedAt": Timestamp(date: Date())
-            ]
-            if let name, !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                updates["name"] = name
-            } else {
-                updates["name"] = FieldValue.delete()
-            }
-            try await usersRef().document(userId).updateData(updates)
+            try await BackendClient.shared.request("PATCH", "/me", body: Body(name: value))
             AppLogger.user.debug("updateName succeeded userId=\(userId)")
         } catch {
             AppLogger.user.error("updateName failed userId=\(userId): \(error)")

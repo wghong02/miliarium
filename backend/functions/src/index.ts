@@ -23,6 +23,10 @@ export * from "./mediaCleanup";
 // Cascade relational cleanup on progress/collection/activity/user deletion.
 export * from "./cascadeDeletes";
 
-// Auth-deletion trigger: removes the users/{uid} doc when the Auth account is
-// deleted, which fans out to the onUserDeleted cascade above.
+// Auth triggers: create the users/{uid} doc on signup, and remove it on account
+// deletion (which fans out to the onUserDeleted cascade above).
+export * from "./accountCreation";
 export * from "./accountDeletion";
+
+// HTTPS API: fronts every client mutation (writes go through the backend).
+export * from "./api";

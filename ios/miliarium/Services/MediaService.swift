@@ -35,13 +35,73 @@ final class MediaService {
             .collection("media")
     }
 
-    private func storagePath(
+    // MARK: - Backend upload helpers
+
+    private struct UploadTicket: Decodable {
+        let mediaId: String
+        let storagePath: String
+        let uploadURL: String
+    }
+
+    /// Asks the backend for a short-lived signed PUT URL + the storage path.
+    private func requestUploadTicket(
         progressItemId: String,
         activityId: String,
-        mediaId: String,
-        fileExtension: String
-    ) -> String {
-        "activities/\(progressItemId)/\(activityId)/\(mediaId).\(fileExtension)"
+        contentType: String,
+        ext: String
+    ) async throws -> UploadTicket {
+        struct Body: Encodable { let contentType: String; let ext: String }
+        return try await BackendClient.shared.send(
+            "POST",
+            "/progress/\(progressItemId)/activities/\(activityId)/media/upload-url",
+            body: Body(contentType: contentType, ext: ext)
+        )
+    }
+
+    /// Uploads bytes (in-memory `data` or an on-disk `fileURL`) straight to the
+    /// signed URL. The signature authorizes the write, so no bearer token here.
+    private func putToSignedURL(
+        _ urlString: String,
+        contentType: String,
+        data: Data?,
+        fileURL: URL?
+    ) async throws {
+        guard let url = URL(string: urlString) else { throw MediaServiceError.uploadFailed }
+        var req = URLRequest(url: url)
+        req.httpMethod = "PUT"
+        req.setValue(contentType, forHTTPHeaderField: "Content-Type")
+
+        let response: URLResponse
+        if let fileURL {
+            (_, response) = try await URLSession.shared.upload(for: req, fromFile: fileURL)
+        } else {
+            (_, response) = try await URLSession.shared.upload(for: req, from: data ?? Data())
+        }
+        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+            throw MediaServiceError.uploadFailed
+        }
+    }
+
+    private struct CommitBody: Encodable {
+        let mediaId: String
+        let storagePath: String
+        let type: String
+        let width: Int?
+        let height: Int?
+        let durationSeconds: Double?
+    }
+
+    /// Commits the media metadata doc after a successful upload.
+    private func commitMedia(
+        progressItemId: String,
+        activityId: String,
+        body: CommitBody
+    ) async throws {
+        try await BackendClient.shared.request(
+            "POST",
+            "/progress/\(progressItemId)/activities/\(activityId)/media",
+            body: body
+        )
     }
 
     // MARK: - Upload
@@ -58,42 +118,41 @@ final class MediaService {
         guard let data = image.jpegData(compressionQuality: 0.85) else {
             throw MediaServiceError.imageEncodingFailed
         }
-        let mediaId = UUID().uuidString
-        let path = storagePath(
+        AppLogger.media.debug("uploadImage start bytes=\(data.count)")
+
+        let width = Int(image.size.width * image.scale)
+        let height = Int(image.size.height * image.scale)
+
+        let ticket = try await requestUploadTicket(
             progressItemId: progressItemId,
             activityId: activityId,
-            mediaId: mediaId,
-            fileExtension: "jpg"
+            contentType: "image/jpeg",
+            ext: "jpg"
+        )
+        try await putToSignedURL(ticket.uploadURL, contentType: "image/jpeg", data: data, fileURL: nil)
+        try await commitMedia(
+            progressItemId: progressItemId,
+            activityId: activityId,
+            body: CommitBody(
+                mediaId: ticket.mediaId,
+                storagePath: ticket.storagePath,
+                type: "image",
+                width: width,
+                height: height,
+                durationSeconds: nil
+            )
         )
 
-        AppLogger.media.debug("uploadImage start path=\(path) bytes=\(data.count)")
-
-        let metadata = StorageMetadata()
-        metadata.contentType = "image/jpeg"
-        metadata.customMetadata = ["uploadedBy": uploadedBy]
-
-        let ref = storage.reference(withPath: path)
-        _ = try await ref.putDataAsync(data, metadata: metadata)
-
-        let media = ActivityMedia(
-            id: mediaId,
+        AppLogger.media.debug("uploadImage succeeded path=\(ticket.storagePath)")
+        return ActivityMedia(
+            id: ticket.mediaId,
             type: .image,
-            storagePath: path,
+            storagePath: ticket.storagePath,
             uploadedBy: uploadedBy,
             sizeBytes: Int64(data.count),
-            width: Int(image.size.width * image.scale),
-            height: Int(image.size.height * image.scale)
+            width: width,
+            height: height
         )
-
-        try await mediaCollection(
-            progressItemId: progressItemId,
-            activityId: activityId
-        )
-        .document(mediaId)
-        .setData(media.asFirestoreMap())
-
-        AppLogger.media.debug("uploadImage succeeded path=\(path)")
-        return media
     }
 
     /// Uploads a video file (already on disk) to Storage and writes the
@@ -105,19 +164,12 @@ final class MediaService {
         activityId: String,
         uploadedBy: String
     ) async throws -> ActivityMedia {
-        let mediaId = UUID().uuidString
         let ext = fileURL.pathExtension.isEmpty ? "mov" : fileURL.pathExtension.lowercased()
-        let path = storagePath(
-            progressItemId: progressItemId,
-            activityId: activityId,
-            mediaId: mediaId,
-            fileExtension: ext
-        )
 
         let attributes = try? FileManager.default.attributesOfItem(atPath: fileURL.path)
         let sizeBytes = (attributes?[.size] as? NSNumber)?.int64Value
 
-        AppLogger.media.debug("uploadVideo start path=\(path) bytes=\(sizeBytes ?? -1)")
+        AppLogger.media.debug("uploadVideo start ext=\(ext) bytes=\(sizeBytes ?? -1)")
 
         // Probe duration + dimensions so the UI can render a sensibly-sized
         // thumbnail without downloading the full file.
@@ -137,33 +189,38 @@ final class MediaService {
             }
         }()
 
-        let metadata = StorageMetadata()
-        metadata.contentType = contentType(forVideoExtension: ext)
-        metadata.customMetadata = ["uploadedBy": uploadedBy]
+        let type = contentType(forVideoExtension: ext)
+        let ticket = try await requestUploadTicket(
+            progressItemId: progressItemId,
+            activityId: activityId,
+            contentType: type,
+            ext: ext
+        )
+        try await putToSignedURL(ticket.uploadURL, contentType: type, data: nil, fileURL: fileURL)
+        try await commitMedia(
+            progressItemId: progressItemId,
+            activityId: activityId,
+            body: CommitBody(
+                mediaId: ticket.mediaId,
+                storagePath: ticket.storagePath,
+                type: "video",
+                width: videoWidth,
+                height: videoHeight,
+                durationSeconds: duration
+            )
+        )
 
-        let ref = storage.reference(withPath: path)
-        _ = try await ref.putFileAsync(from: fileURL, metadata: metadata)
-
-        let media = ActivityMedia(
-            id: mediaId,
+        AppLogger.media.debug("uploadVideo succeeded path=\(ticket.storagePath)")
+        return ActivityMedia(
+            id: ticket.mediaId,
             type: .video,
-            storagePath: path,
+            storagePath: ticket.storagePath,
             uploadedBy: uploadedBy,
             sizeBytes: sizeBytes,
             width: videoWidth,
             height: videoHeight,
             durationSeconds: duration
         )
-
-        try await mediaCollection(
-            progressItemId: progressItemId,
-            activityId: activityId
-        )
-        .document(mediaId)
-        .setData(media.asFirestoreMap())
-
-        AppLogger.media.debug("uploadVideo succeeded path=\(path)")
-        return media
     }
 
     // MARK: - Read
@@ -221,12 +278,10 @@ final class MediaService {
     ) async throws {
         AppLogger.media.debug("deleteMedia id=\(media.id) path=\(media.storagePath)")
 
-        try await mediaCollection(
-            progressItemId: progressItemId,
-            activityId: activityId
+        try await BackendClient.shared.request(
+            "DELETE",
+            "/progress/\(progressItemId)/activities/\(activityId)/media/\(media.id)"
         )
-        .document(media.id)
-        .delete()
 
         AppLogger.media.debug("deleteMedia succeeded id=\(media.id)")
     }
@@ -245,10 +300,12 @@ final class MediaService {
 
 enum MediaServiceError: LocalizedError {
     case imageEncodingFailed
+    case uploadFailed
 
     var errorDescription: String? {
         switch self {
         case .imageEncodingFailed: return "Could not encode the selected image."
+        case .uploadFailed: return "The upload failed. Please try again."
         }
     }
 }

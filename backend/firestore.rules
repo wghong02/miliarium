@@ -1,35 +1,23 @@
 // =============================================================================
-//  DRAFT — NOT YET WIRED INTO firebase.json. DO NOT DEPLOY UNVALIDATED.
+//  DRAFT — NOT YET WIRED INTO firebase.json. Validate before deploying.
 // =============================================================================
 //
-//  This is a proposed security-rules model for Miliarium's client-direct-write
-//  architecture. It was written from a read of the client's access patterns but
-//  has NOT been validated against the Firestore emulator. Before enabling it:
+//  Now that ALL client mutations go through the backend `api` function (which
+//  writes with the Admin SDK and bypasses these rules), the client model is
+//  simple: reads are gated by owner/collaborator membership, and EVERY client
+//  write is denied. Membership is read from `progressLinks`, which are now
+//  written only by the backend — so they're a trustworthy source of truth.
 //
-//    1. Add rules unit tests (@firebase/rules-unit-testing) covering every
-//       client query/write in ios/miliarium (see the access-pattern list at the
-//       bottom of this file).
-//    2. Run them against `firebase emulators:start --only firestore`.
-//    3. Add the COMPANION CODE CHANGES this model depends on (see below).
-//    4. Wire it in: add  "firestore": { "rules": "firestore.rules" }  to
-//       firebase.json, then `firebase deploy --only firestore:rules`.
-//
-//  COMPANION CODE CHANGES required for this model to work:
-//    - Authorization for a progress's activities/collections/media is based on
-//      `progressItems/{id}.ownerUserId` plus a server-maintained
-//      `progressItems/{id}.collaboratorIds` array. That array is NOT
-//      client-writable (see the update rule). You must add a Cloud Function
-//      that maintains it:
-//        * on invitation status -> accepted:  arrayUnion(toUserId)
-//        * on invitation status -> revoked/declined (from accepted): arrayRemove
-//      and initialize `collaboratorIds: []` when a progress is created
-//      (ProgressStore.createProgress).
-//    - `users` listing is denied (anti-enumeration). UserService.fetchUsers must
-//      fetch by document id (parallel getDocument) rather than a
-//      whereField(documentID, in:) query — this change is already applied.
-//    - The owner "Invited Users" panel must query invitations with
-//      `.whereField("fromUserId", ==, myUid)` included (owners are always the
-//      sender), so the constrained-list rule below is satisfiable.
+//  Before enabling:
+//    1. Add rules unit tests (@firebase/rules-unit-testing) for the client READ
+//       queries in ios/miliarium (listed at the bottom).
+//    2. Validate against `firebase emulators:start --only firestore`.
+//    3. COMPANION CHANGE STILL NEEDED: the owner "Invited Users" panel queries
+//       invitations by `progressItemId` only; add `.whereField("fromUserId",
+//       ==, myUid)` to that query (InvitationService.fetchInvitations /
+//       setProgressInvitationsListener + InvitedUsersPanelView) so the
+//       constrained invitations read rule below is satisfiable.
+//    4. Wire in via firebase.json (see backend/README.md) and deploy.
 //
 // =============================================================================
 
@@ -38,110 +26,77 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // ---- helpers ----------------------------------------------------------
-    function isSignedIn() {
-      return request.auth != null;
-    }
-    function uid() {
-      return request.auth.uid;
-    }
-    // Membership for a progress, read from the (server-controlled) progress doc.
-    function progressData(pid) {
-      return get(/databases/$(database)/documents/progressItems/$(pid)).data;
-    }
-    function isMemberData(d) {
-      return d.ownerUserId == uid() || (uid() in d.get('collaboratorIds', []));
-    }
+    function isSignedIn() { return request.auth != null; }
+    function uid() { return request.auth.uid; }
+
     function isMember(pid) {
-      return isMemberData(progressData(pid));
+      let p = get(/databases/$(database)/documents/progressItems/$(pid));
+      return p != null && (
+        p.data.ownerUserId == uid() ||
+        exists(/databases/$(database)/documents/users/$(uid())/progressLinks/$(pid))
+      );
     }
 
     // ---- users ------------------------------------------------------------
     match /users/{userId} {
-      // Single-doc reads by known id are allowed (needed to resolve a
-      // collaborator's display name). Listing/queries are denied so the
-      // collection can't be enumerated or dumped (no `where email ==` oracle).
+      // Single-doc reads by known id (display names); no listing/enumeration.
       allow get: if isSignedIn();
       allow list: if false;
-      allow create, update, delete: if isSignedIn() && userId == uid();
+      allow write: if false; // profile created/edited via backend + auth trigger
 
       match /deviceTokens/{token} {
-        allow read, write: if isSignedIn() && userId == uid();
+        allow read: if isSignedIn() && userId == uid();
+        allow write: if false; // backend
       }
-      // Personal index of progresses this user can see. NOT authoritative for
-      // access control (that lives in progressItems.collaboratorIds), so a
-      // self-created link to a stranger's progress grants nothing — the
-      // progress read still fails isMemberData.
       match /progressLinks/{pid} {
-        allow read, write: if isSignedIn() && userId == uid();
+        allow read: if isSignedIn() && userId == uid();
+        allow write: if false; // backend (create on progress/accept, delete on cascade)
       }
-      // Moderation: users this user has blocked (Guideline 1.2).
       match /blockedUsers/{blockedId} {
-        allow read, write: if isSignedIn() && userId == uid();
+        allow read: if isSignedIn() && userId == uid();
+        allow write: if false; // backend
       }
     }
 
     // ---- progresses + their subtrees -------------------------------------
     match /progressItems/{pid} {
-      allow get: if isSignedIn() && isMemberData(resource.data);
-      allow list: if false; // clients never list this collection top-level
-      allow create: if isSignedIn()
-                    && request.resource.data.ownerUserId == uid();
-      // Members may edit content, but may not change ownership or the
-      // server-managed collaborator set.
-      allow update: if isSignedIn()
-                    && isMemberData(resource.data)
-                    && request.resource.data.ownerUserId == resource.data.ownerUserId
-                    && request.resource.data.get('collaboratorIds', []) == resource.data.get('collaboratorIds', []);
-      allow delete: if isSignedIn() && resource.data.ownerUserId == uid();
+      allow get: if isSignedIn() && isMember(pid);
+      allow list: if false;
+      allow write: if false; // backend
 
-      // activities, collections, media (and any nesting). All gated on
-      // membership of the enclosing progress.
       match /{document=**} {
-        allow read, write: if isSignedIn() && isMember(pid);
+        allow read: if isSignedIn() && isMember(pid);
+        allow write: if false; // backend
       }
     }
 
     // ---- invitations ------------------------------------------------------
-    // Reads are restricted to the two participants. For LIST queries Firestore
-    // only permits a query it can prove returns solely authorized docs, so the
-    // client must constrain by `toUserId == me` or `fromUserId == me`.
+    // Readable only by the two participants; LIST queries must be constrained
+    // by `toUserId == me` or `fromUserId == me` (see companion change #3).
     match /invitations/{invitationId} {
       allow read: if isSignedIn()
                   && (resource.data.fromUserId == uid()
                       || resource.data.toUserId == uid());
-      allow create: if isSignedIn() && request.resource.data.fromUserId == uid();
-      allow update: if isSignedIn()
-                    && (resource.data.fromUserId == uid()
-                        || resource.data.toUserId == uid());
-      allow delete: if isSignedIn() && resource.data.fromUserId == uid();
+      allow write: if false; // backend
     }
 
     // ---- moderation reports ----------------------------------------------
-    // Write-only from clients; reviewed out-of-band (console / admin tooling).
     match /reports/{reportId} {
-      allow create: if isSignedIn()
-                    && request.resource.data.reporterId == uid();
-      allow read, update, delete: if false;
+      allow read, write: if false; // backend create only; reviewed out-of-band
     }
-
-    // Everything else is denied by default.
   }
 }
 
 // -----------------------------------------------------------------------------
-//  Client access patterns this model must satisfy (keep in sync as code changes)
-// -----------------------------------------------------------------------------
-//  users/{uid}                      get (display name), create/update/delete self
-//  users/{uid}/deviceTokens/{t}     read/write self          (NotificationService)
-//  users/{uid}/progressLinks/{pid}  read/write self          (ProgressStore, accept)
-//  users/{uid}/blockedUsers/{id}    read/write self          (ModerationService)
-//  progressItems/{pid}              get member, create owner, update member,
-//                                   delete owner              (ProgressStore)
-//  progressItems/{pid}/activities   read/write member         (ActivityService)
-//  progressItems/{pid}/collections  read/write member         (ActivityCollectionService)
-//  .../activities/{aid}/media       read/write member         (MediaService)
-//  invitations  where toUserId==me / fromUserId==me           (InvitationService)
-//  invitations  where fromUserId==me AND progressItemId==X    (InvitedUsersPanel)
-//  reports                          create (reporterId==me)   (ModerationService)
+//  Client READ patterns this model must satisfy (writes are all backend now):
+//    users/{uid}                      get (display name resolution)
+//    users/{uid}/deviceTokens         (none — client doesn't read these)
+//    users/{uid}/progressLinks        read self            (ProgressStore listener)
+//    users/{uid}/blockedUsers         read self            (ModerationService listener)
+//    progressItems/{pid}              get member           (ProgressStore.fetchProgressItems)
+//    progressItems/{pid}/activities   read member          (ActivityService)
+//    progressItems/{pid}/collections  read member          (ActivityCollectionService)
+//    .../activities/{aid}/media       read member          (MediaService)
+//    invitations where toUserId==me / fromUserId==me       (InvitationService)
+//    invitations where fromUserId==me AND progressItemId==X (InvitedUsersPanel, after #3)
 // -----------------------------------------------------------------------------

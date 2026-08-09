@@ -131,20 +131,18 @@ final class ProgressStore {
         role(forProgressId: progressId) == .owner
     }
 
-    /// Updates the summary of a progress item
+    /// Updates the summary of a progress item (via the backend).
     func updateProgressSummary(progressId: String, summary: String) async -> Bool {
         AppLogger.progressStore.debug("updateProgressSummary progressId=\(progressId)")
         errorMessage = nil
-        let db = Firestore.firestore()
+        struct Body: Encodable { let summary: String }
 
         do {
-            try await db.collection("progressItems")
-                .document(progressId)
-                .updateData([
-                    "content.summary": summary
-                ])
+            try await BackendClient.shared.request(
+                "PATCH", "/progress/\(progressId)", body: Body(summary: summary)
+            )
 
-            // Update local cache immediately
+            // Update local cache immediately; the listener will confirm.
             if let index = progresses.firstIndex(where: { $0.id == progressId }) {
                 progresses[index].content.summary = summary
             }
@@ -165,41 +163,20 @@ final class ProgressStore {
     @discardableResult
     func createProgress(title: String) async -> Bool {
         let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty, let userId else { return false }
+        guard !trimmed.isEmpty, userId != nil else { return false }
         AppLogger.progressStore.debug("createProgress title=\(trimmed)")
         errorMessage = nil
-        let db = Firestore.firestore()
-        let progressRef = db.collection("progressItems").document()
-        let linkRef = db.collection("users").document(userId).collection("progressLinks").document(progressRef.documentID)
-
-        let batch = db.batch()
-
-        // Add progress item
-        batch.setData(
-            [
-                "title": trimmed,
-                "ownerUserId": userId,
-                "content": ProgressContent().asFirestoreMap(),
-                "createdAt": FieldValue.serverTimestamp(),
-            ],
-            forDocument: progressRef
-        )
-
-        // Add progress link (creator owns the progress).
-        batch.setData(
-            [
-                "userId": userId,
-                "progressItemId": progressRef.documentID,
-                "linkedAt": FieldValue.serverTimestamp(),
-                "role": ProgressRole.owner.rawValue,
-            ],
-            forDocument: linkRef
-        )
+        // Client-generated id so we can select the new progress once the
+        // listener delivers it; the backend creates the doc + owner link.
+        let newId = UUID().uuidString
+        struct Body: Encodable { let id: String; let title: String }
 
         do {
             try await withThrowingTaskGroup(of: Void.self) { group in
                 group.addTask {
-                    try await Self.commitBatch(batch)
+                    _ = try await BackendClient.shared.request(
+                        "POST", "/progress", body: Body(id: newId, title: trimmed)
+                    )
                 }
                 group.addTask {
                     try await Task.sleep(for: .seconds(3))
@@ -209,8 +186,8 @@ final class ProgressStore {
                 group.cancelAll()
             }
             // Do not update selection until the listener receives this document from Firestore (server-first).
-            pendingSelectProgressId = progressRef.documentID
-            AppLogger.progressStore.debug("createProgress succeeded id=\(progressRef.documentID) title=\(trimmed)")
+            pendingSelectProgressId = newId
+            AppLogger.progressStore.debug("createProgress succeeded id=\(newId) title=\(trimmed)")
             return true
         } catch CreateProgressFailure.timedOut {
             AppLogger.progressStore.error("createProgress timed out title=\(trimmed)")
@@ -249,33 +226,20 @@ final class ProgressStore {
 
         AppLogger.progressStore.debug("deleteProgress progressId=\(progressId)")
         errorMessage = nil
-        let db = Firestore.firestore()
 
         do {
-            // The client only deletes the top-level progress doc. The backend
-            // `onProgressDeleted` trigger cascades everything that referenced
-            // it — the activities + collections subtrees (and their media /
-            // Storage), plus every invitation and every user's progressLink
-            // (owner + collaborators). See backend/cascadeDeletes.ts.
-            try await db.collection("progressItems").document(progressId).delete()
+            // The backend verifies ownership and deletes the top-level progress
+            // doc; the `onProgressDeleted` trigger cascades everything that
+            // referenced it — activities + collections subtrees (and their media
+            // / Storage), plus every invitation and every user's progressLink.
+            // See backend/cascadeDeletes.ts.
+            try await BackendClient.shared.request("DELETE", "/progress/\(progressId)")
             AppLogger.progressStore.debug("deleteProgress succeeded progressId=\(progressId)")
             return true
         } catch {
             AppLogger.progressStore.error("deleteProgress failed progressId=\(progressId): \(error)")
             errorMessage = error.localizedDescription
             return false
-        }
-    }
-
-    nonisolated private static func commitBatch(_ batch: WriteBatch) async throws {
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-            batch.commit { error in
-                if let error {
-                    continuation.resume(throwing: error)
-                } else {
-                    continuation.resume(returning: ())
-                }
-            }
         }
     }
 

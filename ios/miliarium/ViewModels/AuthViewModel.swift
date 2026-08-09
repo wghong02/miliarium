@@ -40,19 +40,11 @@ final class AuthViewModel {
         authListener.start { [weak self] user in
             Task { @MainActor [weak self] in
                 self?.user = user
-                // Idempotently materialize the matching `users/{uid}` doc
-                // (with the explicit `userId` field that mirrors the doc id).
+                // The `users/{uid}` doc is materialized server-side by the
+                // `onAuthUserCreated` auth trigger (backend/accountCreation.ts),
+                // so there's nothing to upsert here.
                 if let user {
                     AppLogger.auth.debug("authStateChanged: user signed in uid=\(user.uid)")
-                    do {
-                        try await userService.ensureUserExists(
-                            userId: user.uid,
-                            email: user.email
-                        )
-                    } catch {
-                        // Surfaced to the log; don't block sign-in.
-                        AppLogger.auth.error("ensureUserExists failed uid=\(user.uid): \(error)")
-                    }
                 } else {
                     AppLogger.auth.debug("authStateChanged: user signed out")
                 }

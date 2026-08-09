@@ -29,31 +29,29 @@ final class ModerationService {
         details: String? = nil
     ) async throws {
         AppLogger.moderation.debug("reportContent reporter=\(reporterId) reported=\(reportedUserId) context=\(context)")
-        var data: [String: Any] = [
-            "reporterId": reporterId,
-            "reportedUserId": reportedUserId,
-            "context": context,
-            "createdAt": FieldValue.serverTimestamp(),
-        ]
-        if let details, !details.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            data["details"] = details
+        struct Body: Encodable {
+            let reportedUserId: String
+            let context: String
+            let details: String?
         }
-        _ = try await db.collection("reports").addDocument(data: data)
+        let trimmedDetails = details?.trimmingCharacters(in: .whitespacesAndNewlines)
+        try await BackendClient.shared.request("POST", "/reports", body: Body(
+            reportedUserId: reportedUserId,
+            context: context,
+            details: (trimmedDetails?.isEmpty ?? true) ? nil : trimmedDetails
+        ))
     }
 
     // MARK: - Blocking
 
     func blockUser(_ blockedUserId: String, by userId: String) async throws {
         AppLogger.moderation.debug("blockUser blocked=\(blockedUserId) by=\(userId)")
-        try await blockedRef(for: userId).document(blockedUserId).setData([
-            "blockedUserId": blockedUserId,
-            "createdAt": FieldValue.serverTimestamp(),
-        ])
+        try await BackendClient.shared.request("PUT", "/me/blocked-users/\(blockedUserId)")
     }
 
     func unblockUser(_ blockedUserId: String, by userId: String) async throws {
         AppLogger.moderation.debug("unblockUser blocked=\(blockedUserId) by=\(userId)")
-        try await blockedRef(for: userId).document(blockedUserId).delete()
+        try await BackendClient.shared.request("DELETE", "/me/blocked-users/\(blockedUserId)")
     }
 
     func fetchBlockedUserIds(for userId: String) async throws -> [String] {
