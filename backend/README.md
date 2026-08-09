@@ -110,6 +110,7 @@ All commands below are run from `functions/`.
 | `npm run build:watch` | Recompiles on save — pair with the emulator for fast iteration.          |
 | `npm test`         | Runs the Jest unit-test suite once (no emulator/network needed).            |
 | `npm run test:watch` | Re-runs affected tests on save.                                           |
+| `npm run test:integration` | Runs API handlers against the Firestore emulator (needs Java).      |
 | `npm run serve`    | Builds and starts the Functions emulator at `http://localhost:5001`.        |
 | `npm run shell`    | Interactive REPL for invoking functions locally without HTTP.               |
 | `npm run deploy`   | Builds then deploys all functions to the linked Firebase project.           |
@@ -135,6 +136,23 @@ Target a single file or test by name:
 npx jest pushNotifications           # one file (matches on path)
 npx jest -t "excluding the creator"  # tests whose name matches
 ```
+
+### Integration tests (Firestore emulator)
+
+`functions/src/__integration__/*.integration.test.ts` exercise the `api`
+handlers against a **real emulated Firestore** (Admin SDK, no mocks) — catching
+query/`FieldValue`/read-after-write behavior the unit mocks can't. They run
+under a separate Jest config and are excluded from the deploy build.
+
+```bash
+npm run test:integration
+```
+
+This wraps the run in `firebase emulators:exec --only firestore`, so it needs a
+**Java runtime** (the Firestore emulator's dependency); install a JDK/JRE 11+ if
+`java -version` fails. No real Firebase project is used (`--project
+demo-miliarium` runs fully offline). Media handlers are covered by unit tests
+only — signed-URL generation needs real IAM signing the Storage emulator lacks.
 
 Notes:
 
