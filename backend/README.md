@@ -137,22 +137,34 @@ npx jest pushNotifications           # one file (matches on path)
 npx jest -t "excluding the creator"  # tests whose name matches
 ```
 
-### Integration tests (Firestore emulator)
+### Integration tests (emulator)
 
-`functions/src/__integration__/*.integration.test.ts` exercise the `api`
-handlers against a **real emulated Firestore** (Admin SDK, no mocks) — catching
-query/`FieldValue`/read-after-write behavior the unit mocks can't. They run
-under a separate Jest config and are excluded from the deploy build.
+`functions/src/__integration__/*.integration.test.ts` run against the real
+emulator (Admin SDK, no mocks) — catching query/`FieldValue`/read-after-write
+behavior the unit mocks can't. Two layers:
+
+- `api.integration.test.ts` — invokes handlers directly against the **Firestore**
+  emulator (progress/activity/collection flows, reconciliation, invitations).
+- `http.integration.test.ts` — hits the built `api` function over **HTTP** in the
+  **Functions** emulator with an ID token minted by the **Auth** emulator,
+  covering routing, `verifyIdToken`, membership, and the JSON envelopes.
 
 ```bash
 npm run test:integration
 ```
 
-This wraps the run in `firebase emulators:exec --only firestore`, so it needs a
-**Java runtime** (the Firestore emulator's dependency); install a JDK/JRE 11+ if
-`java -version` fails. No real Firebase project is used (`--project
-demo-miliarium` runs fully offline). Media handlers are covered by unit tests
-only — signed-URL generation needs real IAM signing the Storage emulator lacks.
+This builds, then wraps the run in `firebase emulators:exec --only
+functions,firestore,auth` (offline `--project demo-miliarium`), so it needs a
+**Java runtime** for the emulators — install a JDK/JRE 11+ if `java -version`
+fails. They're excluded from the deploy build.
+
+Notes:
+- Because the Functions emulator loads every trigger, the cascade triggers fire
+  during test cleanup. `onActivityDeleted` tries to sweep Storage and, with no
+  Storage emulator running, logs a harmless *"Google API requested"* warning
+  before skipping (`bucket not provisioned`). Tests still pass.
+- Media upload handlers are unit-only — signed-URL generation needs real IAM
+  signing the Storage emulator lacks.
 
 Notes:
 

@@ -131,11 +131,11 @@ skip media when running fully local.
   activity↔collection reconciliation, media path-injection + size validation,
   the read serializers, and routing. No manual verification of these paths is
   needed — CI-style `npm test` covers them.
-- Integration tests run the handlers against the Firestore emulator
-  (`npm run test:integration`) — real DB semantics, cross-handler flows. These
-  need a **Java runtime** for the emulator; if `java -version` fails on your
-  machine, install a JDK/JRE 11+ first (this is the only reason they weren't run
-  during development).
+- Integration tests (`npm run test:integration`, 11 tests) run against the
+  emulator: handler flows against Firestore, plus an HTTP layer that hits the
+  `api` function in the Functions emulator with an Auth-emulator token (routing,
+  `verifyIdToken`, membership, envelopes). These need a **Java runtime** for the
+  emulators; if `java -version` fails, install a JDK/JRE 11+ first.
 - iOS `PrivacyInfo.xcprivacy` (required-reason API manifest).
 - Legal pages hosted at `wghong02.github.io/apps/{policy,terms,support}/miliarium`
   and referenced from the app.
