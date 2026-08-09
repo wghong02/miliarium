@@ -1,5 +1,5 @@
 // =============================================================================
-//  DRAFT — NOT YET WIRED INTO firebase.json. Validate before deploying.
+//  Cloud Storage security rules. Wired into firebase.json.
 // =============================================================================
 //
 //  Clients READ media directly (download URLs) but no longer WRITE via the SDK:
@@ -8,6 +8,8 @@
 //  client writes/deletes (the backend owns those). Storage rules can't read
 //  Firestore, so per-progress membership isn't enforceable here; media paths are
 //  unguessable (UUID activity/media ids).
+//
+//  Deploy: `firebase deploy --only storage:rules` (from backend/).
 // =============================================================================
 
 rules_version = '2';

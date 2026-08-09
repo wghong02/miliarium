@@ -78,27 +78,19 @@ gcloud iam service-accounts add-iam-policy-binding "$SA" \
   --member="serviceAccount:$SA" --role="roles/iam.serviceAccountTokenCreator"
 ```
 
-## Security rules (⚠️ drafts — not yet deployed)
+## Security rules
 
-`firestore.rules` and `storage.rules` are **drafts** and are intentionally **not**
-referenced by `firebase.json` yet. Now that the backend owns all writes, the
-model is simple: **client reads** are gated by owner/collaborator membership and
-**all client writes are denied**. Until these are wired in, the console rules
-still apply.
+`firestore.rules` and `storage.rules` are wired into `firebase.json` and
+validated by `functions/src/__integration__/rules.integration.test.ts`. Now that
+the backend owns all writes, the model is simple: **client reads** are gated by
+owner/collaborator membership and **all client writes are denied**. Deploy them
+(they aren't included in `--only functions`):
 
-Before enabling them:
+```bash
+firebase deploy --only firestore:rules,storage:rules
+```
 
-1. Add rules unit tests with `@firebase/rules-unit-testing` covering the client
-   READ queries listed at the bottom of `firestore.rules`.
-2. Validate against the emulator: `firebase emulators:start --only firestore,storage`.
-3. Apply the remaining **companion change** in the header of `firestore.rules`
-   (constrain the owner "Invited Users" invitations query by `fromUserId`).
-4. Wire them in — add to `firebase.json`:
-   ```json
-   "firestore": { "rules": "firestore.rules" },
-   "storage":   { "rules": "storage.rules" }
-   ```
-   then `firebase deploy --only firestore:rules,storage:rules`.
+Until deployed, whatever rules are in the console still apply.
 
 ## Day-to-day
 
@@ -148,6 +140,9 @@ behavior the unit mocks can't. Two layers:
 - `http.integration.test.ts` — hits the built `api` function over **HTTP** in the
   **Functions** emulator with an ID token minted by the **Auth** emulator,
   covering routing, `verifyIdToken`, membership, and the JSON envelopes.
+- `rules.integration.test.ts` — validates `firestore.rules` with the **client
+  SDK** (`@firebase/rules-unit-testing`): membership reads, no enumeration, and
+  all client writes denied.
 
 ```bash
 npm run test:integration

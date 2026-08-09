@@ -75,25 +75,20 @@ Building the indexes takes a few minutes; queries return
 index not yet in the file — click the link, then add it to
 `firestore.indexes.json`.
 
-## 5. 🟡 Enable and lock down security rules
+## 5. 🟡 Deploy the security rules
 
-The drafted rules (`backend/firestore.rules`, `backend/storage.rules`) enforce
-"backend owns all writes, client reads gated by membership." They are **not yet
-wired** into `firebase.json`. The companion client change they needed (scoping
-the Invited Users invitations query by `fromUserId`) is already applied.
+`backend/firestore.rules` + `backend/storage.rules` enforce "backend owns all
+writes, client reads gated by membership." They're now **wired into
+`firebase.json` and validated** by `rules.integration.test.ts` (see
+`npm run test:integration`), so just deploy them:
 
-1. Add rules unit tests (`@firebase/rules-unit-testing`) for the client READ
-   queries listed at the bottom of `firestore.rules`.
-2. Validate: `firebase emulators:start --only firestore,storage`.
-3. Wire into `backend/firebase.json`:
-   ```json
-   "firestore": { "rules": "firestore.rules" },
-   "storage":   { "rules": "storage.rules" }
-   ```
-4. Deploy: `firebase deploy --only firestore:rules,storage:rules`.
+```bash
+cd backend
+firebase deploy --only firestore:rules,storage:rules
+```
 
-Until this is done, any authenticated user can still read/write another user's
-data via whatever console rules exist.
+Until this is done, whatever rules are in the console still apply (so an
+authenticated user could read/write another user's data if those are permissive).
 
 ## 6. 🟡 Cloud Storage bucket
 
@@ -127,16 +122,16 @@ skip media when running fully local.
 
 ## Already done (no action needed)
 
-- Backend logic is unit-tested (`cd backend/functions && npm test`, 57 tests):
-  authorization (owner/collaborator/self), invitation send/dedup/accept/revoke,
-  activity↔collection reconciliation, media path-injection + size validation,
-  the read serializers, and routing. No manual verification of these paths is
-  needed — CI-style `npm test` covers them.
-- Integration tests (`npm run test:integration`, 11 tests) run against the
-  emulator: handler flows against Firestore, plus an HTTP layer that hits the
-  `api` function in the Functions emulator with an Auth-emulator token (routing,
-  `verifyIdToken`, membership, envelopes). These need a **Java runtime** for the
-  emulators; if `java -version` fails, install a JDK/JRE 11+ first.
+- Backend logic is unit-tested (`cd backend/functions && npm test`, 59 tests):
+  authorization (owner/collaborator/self), account lifecycle, invitation
+  send/dedup/accept/revoke, activity↔collection reconciliation, media
+  path-injection + size validation, the read serializers, and routing.
+- Integration tests (`npm run test:integration`, 18 tests) run against the
+  emulator: handler flows against Firestore, an HTTP layer hitting the `api`
+  function with an Auth-emulator token (routing, `verifyIdToken`, membership,
+  envelopes), and **security-rules tests** (`rules.integration.test.ts`) that
+  validate the read model with the client SDK. These need a **Java runtime**; if
+  `java -version` fails, install a JDK/JRE 11+ first.
 - iOS `PrivacyInfo.xcprivacy` (required-reason API manifest).
 - Legal pages hosted at `wghong02.github.io/apps/{policy,terms,support}/miliarium`
   and referenced from the app.
