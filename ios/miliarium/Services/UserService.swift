@@ -64,26 +64,30 @@ class UserService {
         }
     }
 
-    /// Bulk fetch by user IDs. Chunks into 30-item batches to honor
-    /// Firestore's `in` query limit.
+    /// Bulk fetch by user IDs. Reads each doc by ID in parallel rather than
+    /// via a `whereField(documentID, in:)` query — a document-ID `in` query is
+    /// a collection *list* operation, which security rules must keep locked to
+    /// prevent enumeration of the `users` collection; by-ID `get`s don't.
     func fetchUsers(ids: [String]) async throws -> [AppUser] {
         let uniqueIds = Array(Set(ids))
         guard !uniqueIds.isEmpty else { return [] }
 
         AppLogger.user.debug("fetchUsers count=\(uniqueIds.count)")
+        let usersCollection = usersRef()
         do {
-            var results: [AppUser] = []
-            var index = 0
-            while index < uniqueIds.count {
-                let end = min(index + 30, uniqueIds.count)
-                let chunk = Array(uniqueIds[index..<end])
-                let snapshot = try await usersRef()
-                    .whereField(FieldPath.documentID(), in: chunk)
-                    .getDocuments()
-                results.append(contentsOf: snapshot.documents.compactMap { AppUser(document: $0) })
-                index = end
+            return try await withThrowingTaskGroup(of: AppUser?.self) { group in
+                for id in uniqueIds {
+                    group.addTask {
+                        let doc = try await usersCollection.document(id).getDocument()
+                        return AppUser(document: doc)
+                    }
+                }
+                var results: [AppUser] = []
+                for try await user in group {
+                    if let user { results.append(user) }
+                }
+                return results
             }
-            return results
         } catch {
             AppLogger.user.error("fetchUsers failed: \(error)")
             throw error
@@ -126,22 +130,11 @@ class UserService {
     }
 
     // MARK: - Delete
-
-    /// Permanently deletes the user's `users/{userId}` profile document.
-    /// Called from the in-app account-deletion flow (App Store Review
-    /// Guideline 5.1.1(v)). Deleting this doc fires the backend `onUserDeleted`
-    /// trigger, which cascades the user's subtree (deviceTokens, progressLinks)
-    /// and every progress they owned. See backend/cascadeDeletes.ts.
-    func deleteUser(userId: String) async throws {
-        AppLogger.user.debug("deleteUser userId=\(userId)")
-        do {
-            try await usersRef().document(userId).delete()
-            AppLogger.user.debug("deleteUser succeeded userId=\(userId)")
-        } catch {
-            AppLogger.user.error("deleteUser failed userId=\(userId): \(error)")
-            throw error
-        }
-    }
+    //
+    // Account deletion no longer deletes the profile doc from the client. The
+    // client deletes only the Auth account (AuthViewModel.deleteAccount); the
+    // backend `onAuthUserDeleted` trigger removes `users/{uid}` server-side,
+    // which fires the `onUserDeleted` cascade. See backend/accountDeletion.ts.
 }
 
 let userService = UserService()

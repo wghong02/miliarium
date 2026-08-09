@@ -112,14 +112,14 @@ struct SendInvitationSheet: View {
                     }
                 }
             } catch {
+                // `sendInvitation` reopens any prior row for this recipient
+                // (declined/revoked → pending) and throws a ready-to-show
+                // message only for the already-accepted case, so surface the
+                // error text directly.
                 let errMsg = error.localizedDescription
                 await MainActor.run {
                     isLoading = false
-                    if errMsg.contains("already exists") {
-                        errorMessage = "You already sent an invitation to this user for this progress."
-                    } else {
-                        errorMessage = errMsg
-                    }
+                    errorMessage = errMsg
                 }
             }
         }

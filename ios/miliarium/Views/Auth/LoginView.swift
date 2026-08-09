@@ -63,6 +63,18 @@ struct LoginView: View {
                     // control's segment labels, so query this instead.
                     .accessibilityIdentifier("authSubmitButton")
                 }
+
+                Section {
+                    Text(Legal.agreementNotice)
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                    HStack {
+                        Link("Terms of Use", destination: Legal.termsURL)
+                        Spacer()
+                        Link("Privacy Policy", destination: Legal.privacyURL)
+                    }
+                    .font(.footnote)
+                }
             }
             .navigationTitle("Welcome")
         }

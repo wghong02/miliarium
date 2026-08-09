@@ -15,6 +15,8 @@ struct ProfileSectionView: View {
     @State private var showDeleteAccount = false
     @State private var deletePassword = ""
     @State private var isDeletingAccount = false
+    @State private var blockedUsers: [AppUser] = []
+    @State private var blockedUserIds: [String] = []
 
     private var trimmedName: String {
         name.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -30,6 +32,8 @@ struct ProfileSectionView: View {
                 accountSection
                 nameSection
                 helpSection
+                legalSection
+                blockedSection
                 if let errorMessage {
                     Section {
                         Text(errorMessage)
@@ -45,7 +49,10 @@ struct ProfileSectionView: View {
                 deleteAccountSection
             }
             .navigationTitle("Profile")
-            .task { await loadProfile() }
+            .task {
+                await loadProfile()
+                await loadBlockedUsers()
+            }
             .alert("Delete account?", isPresented: $showDeleteAccount) {
                 SecureField("Password", text: $deletePassword)
                     .textContentType(.password)
@@ -141,6 +148,50 @@ struct ProfileSectionView: View {
         }
     }
 
+    private var legalSection: some View {
+        Section {
+            Link(destination: Legal.termsURL) {
+                Label("Terms of Use", systemImage: "doc.text")
+            }
+            Link(destination: Legal.privacyURL) {
+                Label("Privacy Policy", systemImage: "hand.raised")
+            }
+            if let supportURL = URL(string: "mailto:\(Legal.supportEmail)") {
+                Link(destination: supportURL) {
+                    Label("Contact support", systemImage: "envelope")
+                }
+            }
+        } header: {
+            Text("Legal & Support")
+        } footer: {
+            Text("Miliarium has zero tolerance for objectionable content or abusive behavior. Report content or block a user from the invitation they sent you.")
+        }
+    }
+
+    @ViewBuilder
+    private var blockedSection: some View {
+        if !blockedUserIds.isEmpty {
+            Section {
+                ForEach(blockedUserIds, id: \.self) { id in
+                    HStack {
+                        Text(blockedDisplayName(for: id))
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                        Spacer()
+                        Button("Unblock") {
+                            Task { await unblock(id) }
+                        }
+                        .buttonStyle(.borderless)
+                    }
+                }
+            } header: {
+                Text("Blocked users")
+            } footer: {
+                Text("You won't see invitations or content from blocked users.")
+            }
+        }
+    }
+
     private var deleteAccountSection: some View {
         Section {
             Button(role: .destructive) {
@@ -175,6 +226,31 @@ struct ProfileSectionView: View {
         } catch {
             errorMessage = "Couldn't load profile: \(error.localizedDescription)"
         }
+    }
+
+    private func loadBlockedUsers() async {
+        guard let uid = auth.user?.uid else { return }
+        do {
+            let ids = try await moderationService.fetchBlockedUserIds(for: uid)
+            blockedUserIds = ids
+            blockedUsers = ids.isEmpty ? [] : (try? await userService.fetchUsers(ids: ids)) ?? []
+        } catch {
+            // Best-effort; the section just stays empty on failure.
+        }
+    }
+
+    private func unblock(_ id: String) async {
+        guard let uid = auth.user?.uid else { return }
+        do {
+            try await moderationService.unblockUser(id, by: uid)
+            await loadBlockedUsers()
+        } catch {
+            errorMessage = "Couldn't unblock: \(error.localizedDescription)"
+        }
+    }
+
+    private func blockedDisplayName(for id: String) -> String {
+        blockedUsers.first(where: { $0.id == id })?.displayString ?? id
     }
 
     private func saveName() async {

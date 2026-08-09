@@ -40,6 +40,7 @@ struct MiliariumApp: App {
                 .environment(progressStore)
                 .environment(invitationVM)
                 .environment(onboardingState)
+                .environment(notificationRouter)
                 .onAppear {
                     progressStore.updateUserId(auth.user?.uid)
                     invitationVM.setUserId(auth.user?.uid)

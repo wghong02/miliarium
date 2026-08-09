@@ -1,0 +1,33 @@
+// =============================================================================
+//  DRAFT — NOT YET WIRED INTO firebase.json. DO NOT DEPLOY UNVALIDATED.
+// =============================================================================
+//
+//  Proposed Storage rules for Miliarium. Validate against
+//  `firebase emulators:start --only storage` before enabling, then add
+//    "storage": { "rules": "storage.rules" }
+//  to firebase.json.
+//
+//  NOTE: Storage rules CANNOT read Firestore, so per-progress membership can't
+//  be enforced here. Media paths are unguessable (UUID activity/media ids), and
+//  the client only ever UPLOADS to Storage — all deletes are performed by the
+//  Cloud Functions admin SDK (which bypasses these rules). So we require auth,
+//  cap size, restrict content type, and forbid client deletes.
+// =============================================================================
+
+rules_version = '2';
+
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /activities/{progressItemId}/{activityId}/{fileName} {
+      allow read: if request.auth != null;
+      allow create, update: if request.auth != null
+        && request.resource.size < 200 * 1024 * 1024 // 200 MB cap
+        && (request.resource.contentType.matches('image/.*')
+            || request.resource.contentType.matches('video/.*'));
+      // Storage cleanup is server-owned (onMediaDeleted / onActivityDeleted).
+      allow delete: if false;
+    }
+
+    // Everything else is denied by default.
+  }
+}

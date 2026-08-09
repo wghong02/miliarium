@@ -94,13 +94,20 @@ final class AuthViewModel {
     /// Permanently deletes the signed-in user's account (App Store Review
     /// Guideline 5.1.1(v)). `password` re-authenticates the user, because
     /// `FirebaseAuth`'s `delete()` requires a recent login and the persisted
-    /// session is usually too old to qualify. Deletes the Firestore profile
-    /// doc first — while still authenticated — then the Auth account itself.
+    /// session is usually too old to qualify.
     ///
-    /// Deleting the `users/{uid}` doc fires the backend `onUserDeleted`
-    /// trigger, which cascades the rest server-side: the user's subtree
-    /// (deviceTokens, progressLinks, ...) and every progress they owned. See
-    /// backend/cascadeDeletes.ts.
+    /// The Auth account is deleted **first**. The backend `onAuthUserDeleted`
+    /// trigger reacts by deleting the `users/{uid}` profile doc, which in turn
+    /// fires the `onUserDeleted` cascade that wipes the rest server-side (the
+    /// user's subtree — deviceTokens, progressLinks, ... — and every progress
+    /// they owned). See backend/accountDeletion.ts and backend/cascadeDeletes.ts.
+    ///
+    /// This ordering matters: deleting the profile doc from the client *before*
+    /// the Auth account was gone fired the destructive cascade immediately, so
+    /// a failed Auth deletion would leave the account alive with all its data
+    /// already destroyed. Cascading off the Auth deletion means nothing is
+    /// destroyed unless the account is actually gone — a failed delete here is
+    /// fully recoverable.
     ///
     /// The auth-state listener flips `user` to `nil` on success, so the auth
     /// gate returns to the login screen automatically. Returns `true` on
@@ -120,10 +127,9 @@ final class AuthViewModel {
                 )
                 try await currentUser.reauthenticate(with: credential)
             }
-            // Remove the profile doc while we still hold auth (afterwards the
-            // client loses write permission). If the subsequent Auth delete
-            // fails, `ensureUserExists` re-creates the doc on next sign-in.
-            try await userService.deleteUser(userId: uid)
+            // Delete the Auth account first; the backend cascades the data
+            // teardown off this deletion. Nothing is destroyed unless this
+            // succeeds, so a failure here leaves the account fully intact.
             try await currentUser.delete()
             AppLogger.auth.debug("deleteAccount succeeded uid=\(uid)")
             return true

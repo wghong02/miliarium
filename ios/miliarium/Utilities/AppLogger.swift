@@ -25,4 +25,5 @@ enum AppLogger {
     static var progressStore:      Logger { Logger(subsystem: subsystem, category: "ProgressStore") }
     static var notification:       Logger { Logger(subsystem: subsystem, category: "NotificationService") }
     static var media:              Logger { Logger(subsystem: subsystem, category: "MediaService") }
+    static var moderation:         Logger { Logger(subsystem: subsystem, category: "ModerationService") }
 }

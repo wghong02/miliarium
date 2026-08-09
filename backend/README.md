@@ -57,6 +57,27 @@ As the codebase grows, split related triggers into their own files
    deploy on Spark (free) — Blaze is pay-as-you-go with a generous free
    tier. Upgrade at <https://console.firebase.google.com/project/_/usage/details>.
 
+## Security rules (⚠️ not yet deployed)
+
+`firestore.rules` and `storage.rules` at the repo root are **drafts** and are
+intentionally **not** referenced by `firebase.json` yet — the client currently
+relies on whatever rules exist in the Firebase console. Until these are wired
+in, any authenticated user can read/write another user's data.
+
+Before enabling them:
+
+1. Add rules unit tests with `@firebase/rules-unit-testing` covering the client
+   access patterns listed at the bottom of `firestore.rules`.
+2. Validate against the emulator: `firebase emulators:start --only firestore,storage`.
+3. Apply the **companion code changes** documented in the header of
+   `firestore.rules` (server-maintained `progressItems.collaboratorIds`, etc.).
+4. Wire them in — add to `firebase.json`:
+   ```json
+   "firestore": { "rules": "firestore.rules" },
+   "storage":   { "rules": "storage.rules" }
+   ```
+   then `firebase deploy --only firestore:rules,storage:rules`.
+
 ## Day-to-day
 
 All commands below are run from `functions/`.
@@ -115,16 +136,18 @@ curl http://localhost:5001/<project-id>/us-central1/helloWorld
 
 while `npm run serve` is running.
 
-## Next steps
+## Deployed functions
 
-Planned triggers (see app spec / chat history):
+Each trigger lives in its own file under `src/` and is re-exported from
+`index.ts`:
 
-- **`onDocumentCreated invitations/{id}`** → send push to recipient.
-- **`onDocumentDeleted progressItems/{id}`** → cascade-delete all
-  `activities/`, `collections/`, cross-user `progressLinks/`, and
-  `invitations/` referencing that progress.
-- **`onDocumentCreated progressItems/{id}/activities/{id}`** → notify
-  collaborators (everyone with a `progressLinks/{id}` doc except the
-  writer).
-
-Each goes in its own file under `src/`, exported from `index.ts`.
+- **`onActivityCreated`** (`pushNotifications.ts`) — notify collaborators
+  (everyone with a `progressLinks/{id}` doc except the writer) when a new
+  activity is added. Invitations intentionally do **not** send a push — they
+  surface in-app via the recipient's invitations listener.
+- **`onProgressDeleted` / `onCollectionDeleted` / `onActivityUnlinkCollections`
+  / `onUserDeleted`** (`cascadeDeletes.ts`) — relational cascade cleanup.
+- **`onMediaDeleted` / `onActivityDeleted`** (`mediaCleanup.ts`) — Storage
+  cleanup for deleted media/activities.
+- **`onAuthUserDeleted`** (`accountDeletion.ts`) — deletes the `users/{uid}`
+  doc when the Auth account is deleted, which fans out to the cascade above.

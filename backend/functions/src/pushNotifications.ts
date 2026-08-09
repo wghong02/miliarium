@@ -1,8 +1,9 @@
 /**
  * Miliarium Push Notifications — Firestore-triggered push dispatch.
  *
- * Listens to document creation events in Firestore (invitations, activities, etc.)
- * and sends push notifications to relevant users via Firebase Cloud Messaging.
+ * Listens for new activities on shared progress and notifies the other
+ * collaborators via Firebase Cloud Messaging. (Invitations do not send a
+ * push — they surface in-app via the recipient's invitations listener.)
  *
  * Device tokens are stored in Firestore at:
  *   users/{userId}/deviceTokens/{tokenHexString}
@@ -54,172 +55,6 @@ async function resolveDisplayName(userId: string): Promise<string> {
   }
   return "Someone";
 }
-
-/**
- * Sends a push notification to the recipient when an invitation is created.
- *
- * Trigger path: `invitations/{invitationId}`
- * Expected document fields:
- *   - toUserId: string (recipient's user ID)
- *   - fromUserId: string (sender's user ID)
- *   - progressItemTitle: string (name of the progress being shared)
- *
- * Flow:
- * 1. Extract recipient's user ID from the invitation
- * 2. Fetch all device tokens for that user from `users/{toUserId}/deviceTokens/*`
- * 3. Send a multicast message to all tokens
- * 4. Clean up any failed/invalid tokens
- */
-export const onInvitationCreated = onDocumentCreated(
-  "invitations/{invitationId}",
-  async (event) => {
-    const invitation = event.data?.data();
-    const invitationId = event.params.invitationId;
-
-    if (!invitation) {
-      logger.warn("onInvitationCreated: invitation doc is empty", {
-        invitationId,
-      });
-      return;
-    }
-
-    const recipientUserId = invitation.toUserId;
-    const senderUserId = invitation.fromUserId;
-    const progressTitle = invitation.progressItemTitle;
-
-    if (!recipientUserId || !senderUserId || !progressTitle) {
-      logger.warn("onInvitationCreated: missing required fields", {
-        invitationId,
-        toUserId: recipientUserId,
-        fromUserId: senderUserId,
-        progressItemTitle: progressTitle,
-      });
-      return;
-    }
-
-    logger.info("onInvitationCreated: processing invitation", {
-      invitationId,
-      recipientUserId,
-      senderUserId,
-    });
-
-    try {
-      // Fetch sender's display name and recipient's device tokens in parallel
-      const [senderName, tokensSnapshot] = await Promise.all([
-        resolveDisplayName(senderUserId),
-        db
-          .collection("users")
-          .doc(recipientUserId)
-          .collection("deviceTokens")
-          .get(),
-      ]);
-
-      const tokens = tokensSnapshot.docs.map((doc) => doc.id);
-
-      if (tokens.length === 0) {
-        logger.info("onInvitationCreated: no device tokens for recipient", {
-          recipientUserId,
-        });
-        return;
-      }
-
-      const body = `${senderName} invited you to collaborate on "${progressTitle}"`;
-
-      // Prepare the notification payload. Uses sendEachForMulticast (HTTP/2
-      // per-token) because the legacy /batch endpoint that sendMulticast
-      // relied on was retired by Google in 2024.
-      const response = await messaging.sendEachForMulticast({
-        tokens,
-        notification: {
-          title: "New Collaboration Invite",
-          body,
-        },
-        // Android-specific options
-        android: {
-          priority: "high",
-          notification: {
-            channelId: "invitations",
-            sound: "default",
-          },
-        },
-        // APNs-specific options (iOS)
-        apns: {
-          payload: {
-            aps: {
-              alert: {
-                title: "New Collaboration Invite",
-                body,
-              },
-              sound: "default",
-              badge: 1,
-            },
-          },
-        },
-        // Custom data payload
-        data: {
-          invitationId,
-          type: "invitation",
-          action: "open_invitation",
-        },
-      });
-
-      logger.info("onInvitationCreated: push sent", {
-        invitationId,
-        successCount: response.successCount,
-        failureCount: response.failureCount,
-        tokenCount: tokens.length,
-      });
-
-      // Clean up any failed/invalid tokens
-      if (response.failureCount > 0) {
-        const failedTokens: string[] = [];
-        response.responses.forEach((resp, index) => {
-          if (!resp.success) {
-            logger.warn(
-              "onInvitationCreated: token failed",
-              {
-                tokenPrefix: tokens[index].substring(0, 8),
-                errorCode: resp.error?.code,
-                error: resp.error?.message,
-                errorDetail: JSON.stringify(resp.error),
-              }
-            );
-            // Only purge tokens that are genuinely dead; keep tokens that
-            // failed for transient/auth reasons (the token is still valid).
-            if (isDeadTokenError(resp.error?.code)) {
-              failedTokens.push(tokens[index]);
-            }
-          }
-        });
-
-        // Delete failed tokens in batch
-        if (failedTokens.length > 0) {
-          const batch = db.batch();
-          failedTokens.forEach((token) => {
-            const tokenDocRef = db
-              .collection("users")
-              .doc(recipientUserId)
-              .collection("deviceTokens")
-              .doc(token);
-            batch.delete(tokenDocRef);
-          });
-          await batch.commit();
-          logger.info("onInvitationCreated: removed failed tokens", {
-            failedTokenCount: failedTokens.length,
-            recipientUserId,
-          });
-        }
-      }
-    } catch (error) {
-      logger.error("onInvitationCreated: error sending push", {
-        invitationId,
-        recipientUserId,
-        error: error instanceof Error ? error.message : String(error),
-      });
-      throw error; // Re-throw so Cloud Functions knows this execution failed
-    }
-  }
-);
 
 /**
  * Sends a push notification to all collaborators when a new activity is created.
@@ -297,20 +132,21 @@ export const onActivityCreated = onDocumentCreated(
         collaboratorCount: collaboratorUserIds.length,
       });
 
-      // Fetch all device tokens for all collaborators
-      const allTokens: Array<{ token: string; userId: string }> = [];
-
-      for (const userId of collaboratorUserIds) {
-        const tokensSnapshot = await db
-          .collection("users")
-          .doc(userId)
-          .collection("deviceTokens")
-          .get();
-
-        tokensSnapshot.docs.forEach((doc) => {
-          allTokens.push({ token: doc.id, userId });
-        });
-      }
+      // Fetch every collaborator's device tokens in parallel — one Firestore
+      // round-trip per user, all in flight at once rather than sequentially,
+      // so latency no longer scales linearly with collaborator count.
+      const tokenLists = await Promise.all(
+        collaboratorUserIds.map(async (userId) => {
+          const tokensSnapshot = await db
+            .collection("users")
+            .doc(userId)
+            .collection("deviceTokens")
+            .get();
+          return tokensSnapshot.docs.map((doc) => ({ token: doc.id, userId }));
+        })
+      );
+      const allTokens: Array<{ token: string; userId: string }> =
+        tokenLists.flat();
 
       if (allTokens.length === 0) {
         logger.info("onActivityCreated: no device tokens for collaborators", {
@@ -347,7 +183,6 @@ export const onActivityCreated = onDocumentCreated(
                 body,
               },
               sound: "default",
-              badge: 1,
             },
           },
         },
