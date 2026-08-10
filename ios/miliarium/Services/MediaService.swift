@@ -1,6 +1,7 @@
 import Foundation
 import UIKit
 import AVFoundation
+import Observation
 import FirebaseFirestore
 import FirebaseStorage
 internal import os
@@ -63,27 +64,48 @@ final class MediaService {
     }
 
     /// Uploads bytes (in-memory `data` or an on-disk `fileURL`) straight to the
-    /// signed URL. The signature authorizes the write, so no bearer token here.
+    /// signed URL, reporting progress via `onProgress` (0…1). The signature
+    /// authorizes the write, so no bearer token here. Cancelling the calling
+    /// `Task` cancels the upload.
     private func putToSignedURL(
         _ urlString: String,
         contentType: String,
         data: Data?,
-        fileURL: URL?
+        fileURL: URL?,
+        onProgress: (@Sendable (Double) -> Void)? = nil
     ) async throws {
         guard let url = URL(string: urlString) else { throw MediaServiceError.uploadFailed }
         var req = URLRequest(url: url)
         req.httpMethod = "PUT"
         req.setValue(contentType, forHTTPHeaderField: "Content-Type")
 
+        let delegate = onProgress.map { UploadProgressDelegate(onProgress: $0) }
         let response: URLResponse
         if let fileURL {
-            (_, response) = try await URLSession.shared.upload(for: req, fromFile: fileURL)
+            (_, response) = try await URLSession.shared.upload(for: req, fromFile: fileURL, delegate: delegate)
         } else {
-            (_, response) = try await URLSession.shared.upload(for: req, from: data ?? Data())
+            (_, response) = try await URLSession.shared.upload(for: req, from: data ?? Data(), delegate: delegate)
         }
         guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
             throw MediaServiceError.uploadFailed
         }
+    }
+
+    /// Downscales an image so its longest edge is at most `maxDimension` pixels
+    /// before upload — cuts upload time and storage for large photos. Returns
+    /// the original when it's already small enough.
+    private static func downscaled(_ image: UIImage, maxDimension: CGFloat = 2048) -> UIImage {
+        let longest = max(image.size.width, image.size.height) * image.scale
+        guard longest > maxDimension else { return image }
+        let factor = maxDimension / longest
+        let newSize = CGSize(
+            width: (image.size.width * image.scale * factor).rounded(),
+            height: (image.size.height * image.scale * factor).rounded()
+        )
+        let format = UIGraphicsImageRendererFormat.default()
+        format.scale = 1
+        let renderer = UIGraphicsImageRenderer(size: newSize, format: format)
+        return renderer.image { _ in image.draw(in: CGRect(origin: .zero, size: newSize)) }
     }
 
     private struct CommitBody: Encodable {
@@ -117,9 +139,12 @@ final class MediaService {
         _ image: UIImage,
         progressItemId: String,
         activityId: String,
-        uploadedBy: String
+        uploadedBy: String,
+        onProgress: (@Sendable (Double) -> Void)? = nil
     ) async throws -> ActivityMedia {
-        guard let data = image.jpegData(compressionQuality: 0.85) else {
+        // Downscale large photos before encoding — smaller uploads + storage.
+        let scaled = Self.downscaled(image)
+        guard let data = scaled.jpegData(compressionQuality: 0.85) else {
             throw MediaServiceError.imageEncodingFailed
         }
         guard Int64(data.count) <= Self.maxUploadBytes else {
@@ -127,8 +152,8 @@ final class MediaService {
         }
         AppLogger.media.debug("uploadImage start bytes=\(data.count)")
 
-        let width = Int(image.size.width * image.scale)
-        let height = Int(image.size.height * image.scale)
+        let width = Int(scaled.size.width * scaled.scale)
+        let height = Int(scaled.size.height * scaled.scale)
 
         let ticket = try await requestUploadTicket(
             progressItemId: progressItemId,
@@ -136,7 +161,7 @@ final class MediaService {
             contentType: "image/jpeg",
             ext: "jpg"
         )
-        try await putToSignedURL(ticket.uploadURL, contentType: "image/jpeg", data: data, fileURL: nil)
+        try await putToSignedURL(ticket.uploadURL, contentType: "image/jpeg", data: data, fileURL: nil, onProgress: onProgress)
         try await commitMedia(
             progressItemId: progressItemId,
             activityId: activityId,
@@ -169,7 +194,8 @@ final class MediaService {
         fileURL: URL,
         progressItemId: String,
         activityId: String,
-        uploadedBy: String
+        uploadedBy: String,
+        onProgress: (@Sendable (Double) -> Void)? = nil
     ) async throws -> ActivityMedia {
         let ext = fileURL.pathExtension.isEmpty ? "mov" : fileURL.pathExtension.lowercased()
 
@@ -207,7 +233,7 @@ final class MediaService {
             contentType: type,
             ext: ext
         )
-        try await putToSignedURL(ticket.uploadURL, contentType: type, data: nil, fileURL: fileURL)
+        try await putToSignedURL(ticket.uploadURL, contentType: type, data: nil, fileURL: fileURL, onProgress: onProgress)
         try await commitMedia(
             progressItemId: progressItemId,
             activityId: activityId,
@@ -304,6 +330,44 @@ final class MediaService {
         case "avi": return "video/x-msvideo"
         default: return "application/octet-stream"
         }
+    }
+}
+
+/// Reports upload byte progress (0…1) from a `URLSession` task.
+private final class UploadProgressDelegate: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
+    let onProgress: @Sendable (Double) -> Void
+    init(onProgress: @escaping @Sendable (Double) -> Void) { self.onProgress = onProgress }
+
+    func urlSession(
+        _ session: URLSession,
+        task: URLSessionTask,
+        didSendBodyData bytesSent: Int64,
+        totalBytesSent: Int64,
+        totalBytesExpectedToSend: Int64
+    ) {
+        guard totalBytesExpectedToSend > 0 else { return }
+        onProgress(min(1.0, Double(totalBytesSent) / Double(totalBytesExpectedToSend)))
+    }
+}
+
+/// Observable upload progress a view can bind to. `fraction` is 0…1; `label`
+/// is the "Uploading 2 of 5…" caption.
+@Observable
+@MainActor
+final class MediaUploadProgress {
+    var isUploading = false
+    var fraction: Double = 0
+    var label: String?
+
+    func begin(index: Int, total: Int) {
+        isUploading = true
+        fraction = 0
+        label = "Uploading \(index) of \(total)…"
+    }
+    func finish() {
+        isUploading = false
+        fraction = 0
+        label = nil
     }
 }
 

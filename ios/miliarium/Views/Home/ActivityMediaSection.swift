@@ -18,8 +18,9 @@ struct ActivityMediaSection: View {
     @State private var media: [ActivityMedia] = []
     @State private var listener: ListenerRegistration?
     @State private var selectedPickerItems: [PhotosPickerItem] = []
-    @State private var isUploading = false
-    @State private var uploadProgressLabel: String?
+    @State private var uploadProgress = MediaUploadProgress()
+    @State private var uploadTask: Task<Void, Never>?
+    @State private var failedItems: [PhotosPickerItem] = []
     @State private var errorMessage: String?
     @State private var viewerMedia: ActivityMedia?
     @State private var pendingDelete: ActivityMedia?
@@ -36,7 +37,7 @@ struct ActivityMediaSection: View {
 
     var body: some View {
         Section("Media") {
-            if media.isEmpty && !isUploading {
+            if media.isEmpty && !uploadProgress.isUploading {
                 Text("No photos or videos yet. Tap the button below to add some.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -60,10 +61,22 @@ struct ActivityMediaSection: View {
                 .padding(.vertical, 4)
             }
 
-            if isUploading, let label = uploadProgressLabel {
-                HStack(spacing: 8) {
-                    ProgressView()
-                    Text(label).font(.caption).foregroundStyle(.secondary)
+            if uploadProgress.isUploading {
+                VStack(alignment: .leading, spacing: 6) {
+                    if let label = uploadProgress.label {
+                        Text(label).font(.caption).foregroundStyle(.secondary)
+                    }
+                    ProgressView(value: uploadProgress.fraction)
+                    Button("Cancel", role: .cancel) { uploadTask?.cancel() }
+                        .font(.caption)
+                }
+            } else if !failedItems.isEmpty {
+                Button {
+                    let retry = failedItems
+                    uploadTask = Task { await uploadSelections(retry) }
+                } label: {
+                    Label("Retry \(failedItems.count) failed", systemImage: "arrow.clockwise")
+                        .font(.caption)
                 }
             }
 
@@ -74,7 +87,7 @@ struct ActivityMediaSection: View {
             ) {
                 Label("Add Photo or Video", systemImage: "photo.badge.plus")
             }
-            .disabled(isUploading || uploadedBy == nil || remainingSlots == 0)
+            .disabled(uploadProgress.isUploading || uploadedBy == nil || remainingSlots == 0)
 
             if remainingSlots == 0 {
                 Text("This activity has the maximum of \(Self.maxPerActivity) files.")
@@ -95,7 +108,7 @@ struct ActivityMediaSection: View {
         }
         .onChange(of: selectedPickerItems) { _, newItems in
             guard !newItems.isEmpty else { return }
-            Task { await uploadSelections(newItems) }
+            uploadTask = Task { await uploadSelections(newItems) }
         }
         .sheet(item: $viewerMedia) { item in
             MediaViewer(media: item)
@@ -142,11 +155,11 @@ struct ActivityMediaSection: View {
             return
         }
         errorMessage = nil
-        isUploading = true
+        failedItems = []
         defer {
-            isUploading = false
-            uploadProgressLabel = nil
+            uploadProgress.finish()
             selectedPickerItems = []
+            uploadTask = nil
         }
 
         // Never exceed the per-activity cap, even across concurrent picks.
@@ -157,24 +170,33 @@ struct ActivityMediaSection: View {
         }
 
         for (index, item) in items.enumerated() {
-            uploadProgressLabel = "Uploading \(index + 1) of \(items.count)…"
+            if Task.isCancelled { break }
+            uploadProgress.begin(index: index + 1, total: items.count)
             do {
                 if try await uploadOne(item, uploadedBy: uploadedBy) == false {
+                    failedItems.append(item)
                     errorMessage = "Couldn't read one of the selected items."
                 }
+            } catch is CancellationError {
+                break
             } catch {
                 AppLogger.media.error("upload failed: \(error.localizedDescription)")
+                failedItems.append(item)
                 errorMessage = "Upload failed: \(error.localizedDescription)"
             }
         }
     }
 
-    /// Uploads a single picker item. Returns `false` if the bytes couldn't
-    /// be loaded (skip silently); throws on actual upload errors.
+    /// Uploads a single picker item, forwarding byte progress. Returns `false`
+    /// if the bytes couldn't be loaded (skip silently); throws on upload errors.
     private func uploadOne(
         _ item: PhotosPickerItem,
         uploadedBy: String
     ) async throws -> Bool {
+        let progress = uploadProgress
+        let onProgress: @Sendable (Double) -> Void = { fraction in
+            Task { @MainActor in progress.fraction = fraction }
+        }
         // Try image first.
         if let data = try? await item.loadTransferable(type: Data.self),
            let image = UIImage(data: data) {
@@ -182,7 +204,8 @@ struct ActivityMediaSection: View {
                 image,
                 progressItemId: progressItemId,
                 activityId: activityId,
-                uploadedBy: uploadedBy
+                uploadedBy: uploadedBy,
+                onProgress: onProgress
             )
             return true
         }
@@ -192,7 +215,8 @@ struct ActivityMediaSection: View {
                 fileURL: movie.url,
                 progressItemId: progressItemId,
                 activityId: activityId,
-                uploadedBy: uploadedBy
+                uploadedBy: uploadedBy,
+                onProgress: onProgress
             )
             return true
         }
