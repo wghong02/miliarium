@@ -16,6 +16,8 @@ final class NotificationRouter {
         case invitations
         /// Open a specific progress.
         case progress(String)
+        /// Present the weekly Memories recap.
+        case weeklyRecap
     }
 
     /// Set when a notification is tapped; consumed and cleared by the UI.
@@ -32,6 +34,8 @@ final class NotificationRouter {
             if let progressItemId, !progressItemId.isEmpty {
                 pending = .progress(progressItemId)
             }
+        case "weekly_recap":
+            pending = .weeklyRecap
         default:
             break
         }

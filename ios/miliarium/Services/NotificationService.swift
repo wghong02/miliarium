@@ -197,6 +197,31 @@ final class NotificationService {
             .removePendingNotificationRequests(withIdentifiers: [reminderId(activityId)])
     }
 
+    /// (Re)schedules the repeating weekly "Memories" recap notification, or
+    /// cancels it when disabled. Call on launch and whenever the schedule
+    /// changes.
+    func scheduleWeeklyRecap(enabled: Bool, components: DateComponents) async {
+        let id = "weekly-recap"
+        let center = UNUserNotificationCenter.current()
+        center.removePendingNotificationRequests(withIdentifiers: [id])
+        guard enabled else { return }
+
+        let content = UNMutableNotificationContent()
+        content.title = "Your week in review"
+        content.body = "See what you got up to this past week."
+        content.sound = .default
+        content.userInfo = ["type": "weekly_recap"]
+
+        let trigger = UNCalendarNotificationTrigger(dateMatching: components, repeats: true)
+        let request = UNNotificationRequest(identifier: id, content: content, trigger: trigger)
+        do {
+            try await center.add(request)
+            AppLogger.notification.debug("scheduled weekly recap \(components.weekday ?? -1) \(components.hour ?? -1):\(components.minute ?? -1)")
+        } catch {
+            AppLogger.notification.error("scheduleWeeklyRecap failed: \(error.localizedDescription)")
+        }
+    }
+
     private static func reminderBody(minutesBefore: Int) -> String {
         switch minutesBefore {
         case 0: return "Starting now."

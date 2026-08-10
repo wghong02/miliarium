@@ -15,6 +15,7 @@ struct MiliariumApp: App {
     @State private var progressStore = ProgressStore()
     @State private var invitationVM = InvitationViewModel()
     @State private var onboardingState = OnboardingState()
+    @State private var memorySettings = MemorySettings()
 
     /// Bridges UIKit's `UIApplicationDelegate` callbacks (APNS token
     /// delivery, registration failures) into the SwiftUI lifecycle so
@@ -41,9 +42,17 @@ struct MiliariumApp: App {
                 .environment(invitationVM)
                 .environment(onboardingState)
                 .environment(notificationRouter)
+                .environment(memorySettings)
                 .onAppear {
                     progressStore.updateUserId(auth.user?.uid)
                     invitationVM.setUserId(auth.user?.uid)
+                    // Keep the weekly Memories recap notification in sync.
+                    Task {
+                        await notificationService.scheduleWeeklyRecap(
+                            enabled: memorySettings.isEnabled,
+                            components: memorySettings.notificationComponents
+                        )
+                    }
                     // Clear the badge on cold launch. `.onChange(of: scenePhase)`
                     // doesn't fire for the initial `.active` value, so handle
                     // the launch case here; warm foregrounds go through onChange.
@@ -86,6 +95,15 @@ struct MiliariumApp: App {
                 // can compare arrays for equality.
                 .onChange(of: progressStore.progresses.map(\.id)) { _, _ in
                     widgetSnapshotService.update(progresses: progressStore.progresses)
+                }
+                // Reschedule the weekly recap whenever its schedule changes.
+                .onChange(of: memorySettings.scheduleSignature) { _, _ in
+                    Task {
+                        await notificationService.scheduleWeeklyRecap(
+                            enabled: memorySettings.isEnabled,
+                            components: memorySettings.notificationComponents
+                        )
+                    }
                 }
                 // Clear the app-icon badge each time the app returns to the
                 // foreground, so the red number resets once the user opens it.

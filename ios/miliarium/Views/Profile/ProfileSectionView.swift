@@ -4,6 +4,7 @@ import FirebaseAuth
 struct ProfileSectionView: View {
     @Environment(AuthViewModel.self) private var auth
     @Environment(OnboardingState.self) private var onboardingState
+    @Environment(MemorySettings.self) private var memorySettings
 
     @State private var appUser: AppUser?
     @State private var name = ""
@@ -17,6 +18,7 @@ struct ProfileSectionView: View {
     @State private var isDeletingAccount = false
     @State private var blockedUsers: [AppUser] = []
     @State private var blockedUserIds: [String] = []
+    @State private var showMemories = false
 
     private var trimmedName: String {
         name.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -31,6 +33,7 @@ struct ProfileSectionView: View {
             List {
                 accountSection
                 nameSection
+                memoriesSection
                 helpSection
                 legalSection
                 blockedSection
@@ -49,6 +52,9 @@ struct ProfileSectionView: View {
                 deleteAccountSection
             }
             .navigationTitle("Profile")
+            .sheet(isPresented: $showMemories) {
+                MemoriesView()
+            }
             .task {
                 await loadProfile()
                 await loadBlockedUsers()
@@ -145,6 +151,42 @@ struct ProfileSectionView: View {
             Text("Help")
         } footer: {
             Text("Resets the welcome sheet and the per-tab hint banners so they appear again.")
+        }
+    }
+
+    private var memoriesSection: some View {
+        Section {
+            Toggle("Weekly recap", isOn: Binding(
+                get: { memorySettings.isEnabled },
+                set: { memorySettings.isEnabled = $0 }
+            ))
+            if memorySettings.isEnabled {
+                Picker("Day", selection: Binding(
+                    get: { memorySettings.weekday },
+                    set: { memorySettings.weekday = $0 }
+                )) {
+                    ForEach(1...7, id: \.self) { w in
+                        Text(Foundation.Calendar.current.weekdaySymbols[w - 1]).tag(w)
+                    }
+                }
+                DatePicker(
+                    "Time",
+                    selection: Binding(
+                        get: { memorySettings.timeAsDate },
+                        set: { memorySettings.setTime(from: $0) }
+                    ),
+                    displayedComponents: .hourAndMinute
+                )
+            }
+            Button {
+                showMemories = true
+            } label: {
+                Label("View this week's memories", systemImage: "sparkles")
+            }
+        } header: {
+            Text("Memories")
+        } footer: {
+            Text("A weekly summary of the past 7 days, with a notification at the set time. It also appears automatically the first time you open the app after then.")
         }
     }
 

@@ -3,10 +3,12 @@ import SwiftUI
 struct MainTabView: View {
     @Environment(NotificationRouter.self) private var router
     @Environment(ProgressStore.self) private var progressStore
+    @Environment(MemorySettings.self) private var memorySettings
 
     /// Home is tag 0; a tapped notification routes here (invitations live on
     /// Home, and an activity push opens the relevant progress on Home).
     @State private var selection = 0
+    @State private var showMemories = false
 
     var body: some View {
         TabView(selection: $selection) {
@@ -48,9 +50,18 @@ struct MainTabView: View {
             case .progress(let progressItemId):
                 selection = 0
                 progressStore.selectProgress(id: progressItemId)
+            case .weeklyRecap:
+                showMemories = true
             }
             // Consume the routing request so it doesn't re-fire.
             router.pending = nil
+        }
+        // Auto-present the weekly recap on launch when it's due.
+        .onAppear {
+            if memorySettings.isRecapDue() { showMemories = true }
+        }
+        .sheet(isPresented: $showMemories, onDismiss: { memorySettings.markRecapSeen() }) {
+            MemoriesView()
         }
     }
 }
@@ -61,5 +72,6 @@ struct MainTabView: View {
             .environment(AuthViewModel())
             .environment(ProgressStore())
             .environment(NotificationRouter())
+            .environment(MemorySettings())
     }
 }
