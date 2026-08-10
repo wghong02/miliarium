@@ -77,7 +77,9 @@ actor BackendClient {
         let data: Data
         let response: URLResponse
         do {
-            (data, response) = try await session.data(for: req)
+            (data, response) = try await Self.dataWithRetry(session: session, request: req)
+        } catch let urlError as URLError {
+            throw BackendError(code: "network", message: Self.friendlyNetworkMessage(urlError))
         } catch {
             throw BackendError(code: "network", message: error.localizedDescription)
         }
@@ -91,6 +93,31 @@ actor BackendClient {
             throw apiError
         }
         return data
+    }
+
+    /// One safe retry when there's no connection at all — the request never
+    /// reached the server, so retrying can't double-apply a mutation.
+    private static func dataWithRetry(
+        session: URLSession,
+        request: URLRequest
+    ) async throws -> (Data, URLResponse) {
+        do {
+            return try await session.data(for: request)
+        } catch let error as URLError where error.code == .notConnectedToInternet {
+            try? await Task.sleep(for: .seconds(1))
+            return try await session.data(for: request)
+        }
+    }
+
+    private static func friendlyNetworkMessage(_ error: URLError) -> String {
+        switch error.code {
+        case .notConnectedToInternet, .networkConnectionLost, .cannotConnectToHost, .cannotFindHost:
+            return "You appear to be offline. Check your connection and try again."
+        case .timedOut:
+            return "The request timed out. Check your connection and try again."
+        default:
+            return error.localizedDescription
+        }
     }
 
     /// Performs a request and decodes the JSON response into `Response`.

@@ -12,30 +12,38 @@ struct ContentView: View {
     @State private var showWelcome = false
 
     var body: some View {
-        Group {
-            if auth.user != nil {
-                MainTabView()
-            } else {
-                LoginView()
+        VStack(spacing: 0) {
+            if !networkMonitor.isOnline {
+                OfflineBanner()
+                    .transition(.move(edge: .top).combined(with: .opacity))
+            }
+            Group {
+                if auth.user != nil {
+                    MainTabView()
+                } else {
+                    LoginView()
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .onAppear { evaluateWelcome() }
+            .onChange(of: auth.user?.uid) { _, _ in evaluateWelcome() }
+            // Re-present the welcome sheet when the user resets onboarding
+            // from the Profile tab (`hasSeenWelcome` flips back to false).
+            .onChange(of: onboardingState.hasSeenWelcome) { _, newValue in
+                if !newValue { evaluateWelcome() }
+            }
+            .sheet(isPresented: $showWelcome, onDismiss: {
+                // Swipe-down dismiss path: still mark welcome as seen so the
+                // sheet doesn't pop up again on the next launch.
+                onboardingState.markWelcomeSeen()
+            }) {
+                WelcomeSheet(onDismiss: {
+                    onboardingState.markWelcomeSeen()
+                    showWelcome = false
+                })
             }
         }
-        .onAppear { evaluateWelcome() }
-        .onChange(of: auth.user?.uid) { _, _ in evaluateWelcome() }
-        // Re-present the welcome sheet when the user resets onboarding
-        // from the Profile tab (`hasSeenWelcome` flips back to false).
-        .onChange(of: onboardingState.hasSeenWelcome) { _, newValue in
-            if !newValue { evaluateWelcome() }
-        }
-        .sheet(isPresented: $showWelcome, onDismiss: {
-            // Swipe-down dismiss path: still mark welcome as seen so the
-            // sheet doesn't pop up again on the next launch.
-            onboardingState.markWelcomeSeen()
-        }) {
-            WelcomeSheet(onDismiss: {
-                onboardingState.markWelcomeSeen()
-                showWelcome = false
-            })
-        }
+        .animation(.easeInOut(duration: 0.25), value: networkMonitor.isOnline)
     }
 
     private func evaluateWelcome() {
