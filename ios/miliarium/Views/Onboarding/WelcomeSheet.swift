@@ -26,6 +26,11 @@ struct WelcomeSheet: View {
             icon: "tray.full.fill",
             title: "Activities & Collections",
             body: "Activities are the things you do (visit a museum, run 5 miles, finish a chapter). Collections let you group activities however you like — by city, by type, by week."
+        ),
+        OnboardingPage(
+            icon: "bell.badge.fill",
+            title: "Photos, reminders & memories",
+            body: "Attach photos and videos to an activity, and set a reminder before a timed one. Each week Miliarium shows a recap of what you did — change the day and time in Profile."
         )
     ]
 
