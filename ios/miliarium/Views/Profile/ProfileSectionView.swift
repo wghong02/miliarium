@@ -177,6 +177,7 @@ struct ProfileSectionView: View {
                     ),
                     displayedComponents: .hourAndMinute
                 )
+                NotificationsDisabledNote()
             }
             Button {
                 showMemories = true

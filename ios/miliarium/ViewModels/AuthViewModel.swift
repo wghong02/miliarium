@@ -25,6 +25,8 @@ final class AuthViewModel {
     private(set) var user: User?
     private(set) var isBusy = false
     private(set) var errorMessage: String?
+    /// Non-error confirmation text (e.g. "reset email sent").
+    private(set) var infoMessage: String?
 
     private let authListener = FirebaseAuthStateListener()
 
@@ -131,9 +133,31 @@ final class AuthViewModel {
         }
     }
 
+    /// Sends a password-reset email. Surfaces a confirmation in `infoMessage`
+    /// on success (deliberately not revealing whether the address exists).
+    func sendPasswordReset(email: String) async {
+        let trimmed = email.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            errorMessage = "Enter your email first."
+            return
+        }
+        AppLogger.auth.debug("sendPasswordReset email=\(trimmed)")
+        isBusy = true
+        errorMessage = nil
+        infoMessage = nil
+        defer { isBusy = false }
+        do {
+            try await Auth.auth().sendPasswordReset(withEmail: trimmed)
+            infoMessage = "If an account exists for \(trimmed), a reset link is on its way."
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
     private func perform(_ work: @Sendable () async throws -> Void) async {
         isBusy = true
         errorMessage = nil
+        infoMessage = nil
         defer { isBusy = false }
         do {
             try await work()

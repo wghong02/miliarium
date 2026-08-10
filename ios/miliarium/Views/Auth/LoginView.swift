@@ -33,6 +33,14 @@ struct LoginView: View {
                     }
                 }
 
+                if let info = auth.infoMessage {
+                    Section {
+                        Text(info)
+                            .foregroundStyle(.green)
+                            .font(.footnote)
+                    }
+                }
+
                 Section {
                     Picker("Mode", selection: $mode) {
                         ForEach(AuthMode.allCases, id: \.self) { m in
@@ -62,6 +70,14 @@ struct LoginView: View {
                     // / "Create account") collides with the mode segmented
                     // control's segment labels, so query this instead.
                     .accessibilityIdentifier("authSubmitButton")
+
+                    if mode == .signIn {
+                        Button("Forgot password?") {
+                            Task { await auth.sendPasswordReset(email: email) }
+                        }
+                        .font(.footnote)
+                        .disabled(auth.isBusy || email.isEmpty)
+                    }
                 }
 
                 Section {

@@ -16,6 +16,7 @@ struct MiliariumApp: App {
     @State private var invitationVM = InvitationViewModel()
     @State private var onboardingState = OnboardingState()
     @State private var memorySettings = MemorySettings()
+    @State private var didReconcileReminders = false
 
     /// Bridges UIKit's `UIApplicationDelegate` callbacks (APNS token
     /// delivery, registration failures) into the SwiftUI lifecycle so
@@ -74,6 +75,7 @@ struct MiliariumApp: App {
                     invitationVM.setUserId(newValue)
                     if newValue == nil {
                         widgetSnapshotService.stop()
+                        didReconcileReminders = false
                         // Sign-out: drop this device's token from the user
                         // we're leaving so they stop receiving pushes here.
                         if let oldValue {
@@ -93,8 +95,15 @@ struct MiliariumApp: App {
                 // Re-sync the widget's per-progress listeners whenever the
                 // accessible-progresses set changes. Map to IDs so SwiftUI
                 // can compare arrays for equality.
-                .onChange(of: progressStore.progresses.map(\.id)) { _, _ in
+                .onChange(of: progressStore.progresses.map(\.id)) { _, ids in
                     widgetSnapshotService.update(progresses: progressStore.progresses)
+                    // Rebuild activity reminders once per launch, after the
+                    // user's progresses have loaded.
+                    if !didReconcileReminders && !ids.isEmpty {
+                        didReconcileReminders = true
+                        let progresses = progressStore.progresses
+                        Task { await notificationService.reconcileActivityReminders(progresses: progresses) }
+                    }
                 }
                 // Reschedule the weekly recap whenever its schedule changes.
                 .onChange(of: memorySettings.scheduleSignature) { _, _ in

@@ -277,6 +277,9 @@ struct CreateActivitySheet: View {
 
             if hasStartDate {
                 ReminderPickerRow(reminder: $reminder)
+                if reminder != .none {
+                    NotificationsDisabledNote()
+                }
             }
 
             if let error = timeValidationError {
@@ -762,6 +765,9 @@ struct EditActivitySheet: View {
 
             if hasStartDate {
                 ReminderPickerRow(reminder: $reminder)
+                if reminder != .none {
+                    NotificationsDisabledNote()
+                }
             }
 
             if let error = timeValidationError {

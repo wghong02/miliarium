@@ -150,6 +150,11 @@ final class NotificationService {
         }
     }
 
+    /// The current notification authorization status (for in-app nudges).
+    func authorizationStatus() async -> UNAuthorizationStatus {
+        await UNUserNotificationCenter.current().notificationSettings().authorizationStatus
+    }
+
     // MARK: - Activity reminders (local notifications)
 
     private func reminderId(_ activityId: String) -> String {
@@ -195,6 +200,51 @@ final class NotificationService {
     func cancelReminder(activityId: String) {
         UNUserNotificationCenter.current()
             .removePendingNotificationRequests(withIdentifiers: [reminderId(activityId)])
+    }
+
+    /// Rebuilds all scheduled activity reminders from the user's upcoming
+    /// activities — so reminders survive reinstalls and edits made on other
+    /// devices. Only the nearest ~60 are scheduled, to stay under iOS's 64
+    /// pending-notification cap (leaving room for the weekly recap). Call once
+    /// after the user's progresses have loaded.
+    func reconcileActivityReminders(progresses: [ProgressItem]) async {
+        var upcoming: [Activity] = []
+        await withTaskGroup(of: [Activity].self) { group in
+            for progress in progresses {
+                let pid = progress.id
+                group.addTask {
+                    let acts = (try? await activityService.fetchActivities(for: pid)) ?? []
+                    let now = Date()
+                    return acts.filter { a in
+                        guard let m = a.reminderMinutesBefore, let start = a.timestamp else { return false }
+                        return start.addingTimeInterval(-Double(m) * 60) > now
+                    }
+                }
+            }
+            for await sub in group { upcoming.append(contentsOf: sub) }
+        }
+
+        func fireDate(_ a: Activity) -> Date {
+            a.timestamp!.addingTimeInterval(-Double(a.reminderMinutesBefore!) * 60)
+        }
+        let nearest = upcoming.sorted { fireDate($0) < fireDate($1) }.prefix(60)
+
+        // Clear existing activity reminders, then reschedule the nearest set.
+        let center = UNUserNotificationCenter.current()
+        let stale = (await center.pendingNotificationRequests())
+            .map(\.identifier)
+            .filter { $0.hasPrefix("activity-reminder-") }
+        center.removePendingNotificationRequests(withIdentifiers: stale)
+
+        for activity in nearest {
+            await syncReminder(
+                activityId: activity.id,
+                title: activity.title,
+                timestamp: activity.timestamp,
+                reminderMinutesBefore: activity.reminderMinutesBefore
+            )
+        }
+        AppLogger.notification.debug("reconciled \(nearest.count) activity reminders")
     }
 
     /// (Re)schedules the repeating weekly "Memories" recap notification, or
