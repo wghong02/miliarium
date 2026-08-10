@@ -4,9 +4,9 @@
  */
 
 import { getFirestore, FieldValue } from "firebase-admin/firestore";
-import { RequestContext, requireString, optionalString } from "./http";
+import { RequestContext, requireString, optionalString, limitReached } from "./http";
 import { assertProgressMember, assertProgressOwner } from "./auth";
-import { LIMITS, clampText } from "./limits";
+import { LIMITS, MAX_PROGRESS_ITEMS, clampText } from "./limits";
 
 const db = getFirestore();
 
@@ -15,12 +15,21 @@ export async function createProgress(ctx: RequestContext): Promise<{ id: string 
   const id = requireString(ctx.body, "id");
   const title = clampText(requireString(ctx.body, "title"), LIMITS.name);
 
+  const userRef = db.collection("users").doc(ctx.uid);
+  const linksRef = userRef.collection("progressLinks");
+
+  // Enforce the per-account cap on owned progresses. The limit lives on the
+  // user doc (set at registration); fall back to the default if unset.
+  const userSnap = await userRef.get();
+  const rawMax = userSnap.data()?.maxProgressItems;
+  const max = typeof rawMax === "number" && rawMax >= 0 ? rawMax : MAX_PROGRESS_ITEMS;
+  const owned = await linksRef.where("role", "==", "owner").count().get();
+  if (owned.data().count >= max) {
+    throw limitReached(`You can have at most ${max} progresses.`);
+  }
+
   const progressRef = db.collection("progressItems").doc(id);
-  const linkRef = db
-    .collection("users")
-    .doc(ctx.uid)
-    .collection("progressLinks")
-    .doc(id);
+  const linkRef = linksRef.doc(id);
   const now = FieldValue.serverTimestamp();
 
   const batch = db.batch();

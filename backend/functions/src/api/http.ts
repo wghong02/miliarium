@@ -43,6 +43,8 @@ export const notFound = (message = "Not found."): ApiError =>
   new ApiError(404, "not-found", message);
 export const conflict = (message: string): ApiError =>
   new ApiError(409, "already-exists", message);
+export const limitReached = (message: string): ApiError =>
+  new ApiError(409, "limit-reached", message);
 
 /** Reads a required non-empty string field from a JSON body, or throws 400. */
 export function requireString(

@@ -44,6 +44,12 @@ struct HomeSectionView: View {
                         }
                     }
 
+                    // Once the user owns the maximum number of progresses,
+                    // explain why they can't create more.
+                    if progressStore.hasReachedProgressLimit {
+                        ProgressLimitBanner(max: ProgressStore.maxOwnedProgresses)
+                    }
+
                     Group {
                         if progressStore.isLoading {
                             ProgressView()
@@ -198,6 +204,7 @@ struct HomeSectionView: View {
                 Button("Create progress…") {
                     showCreateProgress = true
                 }
+                .disabled(progressStore.hasReachedProgressLimit)
             }
         } label: {
             HStack(spacing: 4) {
@@ -356,5 +363,23 @@ struct HomeSectionView: View {
                 }
             }
         }
+    }
+}
+
+/// Informs the user they've hit the per-account cap on progresses they can own.
+private struct ProgressLimitBanner: View {
+    let max: Int
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "info.circle.fill")
+                .foregroundStyle(.orange)
+            Text("You've reached the maximum of \(max) progresses. Delete one to create another.")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+            Spacer(minLength: 0)
+        }
+        .padding(10)
+        .background(Color.orange.opacity(0.12), in: RoundedRectangle(cornerRadius: 10))
     }
 }

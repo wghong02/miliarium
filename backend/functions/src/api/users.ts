@@ -8,7 +8,7 @@
 import { getFirestore, Timestamp, FieldValue } from "firebase-admin/firestore";
 import { getAuth } from "firebase-admin/auth";
 import { RequestContext, optionalString } from "./http";
-import { LIMITS, clampText } from "./limits";
+import { LIMITS, MAX_PROGRESS_ITEMS, clampText } from "./limits";
 import { serializeUser, compact } from "./serialize";
 
 const db = getFirestore();
@@ -29,7 +29,14 @@ export async function ensureProfile(ctx: RequestContext): Promise<{ ok: true }> 
     // Best-effort — proceed without email if the lookup fails.
   }
   const now = Timestamp.now();
-  const data: Record<string, unknown> = { userId: ctx.uid, createdAt: now, updatedAt: now };
+  const data: Record<string, unknown> = {
+    userId: ctx.uid,
+    createdAt: now,
+    updatedAt: now,
+    // Per-account cap on owned progresses, stored at registration so it travels
+    // with the account and can be raised for individual users later.
+    maxProgressItems: MAX_PROGRESS_ITEMS,
+  };
   if (email) data.email = email;
 
   await ref.set(data, { merge: true });

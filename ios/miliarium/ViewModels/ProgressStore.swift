@@ -27,6 +27,21 @@ final class ProgressStore {
     private var listener: ListenerRegistration?
     private var userId: String?
 
+    /// Max progresses a user may own (create). The backend is authoritative
+    /// (it stores the cap on the user doc at registration and rejects creates
+    /// past it); this mirror is only used to surface the limit in the UI.
+    static let maxOwnedProgresses = 2
+
+    /// How many of the loaded progresses the current user owns.
+    var ownedProgressCount: Int {
+        progresses.filter { isOwner(of: $0.id) }.count
+    }
+
+    /// True once the user owns the maximum number of progresses they can create.
+    var hasReachedProgressLimit: Bool {
+        ownedProgressCount >= Self.maxOwnedProgresses
+    }
+
     /// Set after a successful server write; cleared once the snapshot listener shows that progress locally.
     private var pendingSelectProgressId: String?
 
@@ -164,6 +179,11 @@ final class ProgressStore {
     func createProgress(title: String) async -> Bool {
         let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty, userId != nil else { return false }
+        // Client-side guard mirroring the backend cap, for immediate feedback.
+        guard !hasReachedProgressLimit else {
+            errorMessage = "You can have at most \(Self.maxOwnedProgresses) progresses."
+            return false
+        }
         AppLogger.progressStore.debug("createProgress title=\(trimmed)")
         errorMessage = nil
         // Client-generated id so we can select the new progress once the

@@ -236,6 +236,26 @@ describe("progress", () => {
     expect(link.data).toMatchObject({ role: "owner", progressItemId: "P1", userId: "U" });
   });
 
+  it("createProgress rejects once the owned cap is reached", async () => {
+    db.__setDoc("users/U", { userId: "U", maxProgressItems: 2 });
+    // Two existing owned links → at the cap.
+    db.__setDoc("users/U/progressLinks/A", { role: "owner" });
+    db.__setDoc("users/U/progressLinks/B", { role: "owner" });
+    await expect(
+      progress.createProgress(ctx({ uid: "U", body: { id: "P2", title: "Third" } }))
+    ).rejects.toMatchObject({ status: 409, code: "limit-reached" });
+    expect(writesFor("progressItems/P2")).toHaveLength(0);
+  });
+
+  it("createProgress allows creation below the cap", async () => {
+    db.__setDoc("users/U", { userId: "U", maxProgressItems: 2 });
+    db.__setDoc("users/U/progressLinks/A", { role: "owner" });
+    const res = await progress.createProgress(
+      ctx({ uid: "U", body: { id: "P2", title: "Second" } })
+    );
+    expect(res).toEqual({ id: "P2" });
+  });
+
   it("updateSummary requires membership and clamps length", async () => {
     db.__setDoc("progressItems/P", { ownerUserId: "U" });
     await progress.updateSummary(ctx({ params: { pid: "P" }, body: { summary: "hi" } }));
@@ -563,7 +583,11 @@ describe("media", () => {
 describe("account lifecycle", () => {
   it("ensureProfile creates the doc when missing and is idempotent", async () => {
     await users.ensureProfile(ctx({ uid: "U" }));
-    expect(writesFor("users/U")[0].data).toMatchObject({ userId: "U", email: "U@example.com" });
+    expect(writesFor("users/U")[0].data).toMatchObject({
+      userId: "U",
+      email: "U@example.com",
+      maxProgressItems: 2,
+    });
 
     db.__setDoc("users/V", { userId: "V" });
     db.__writes.length = 0;
