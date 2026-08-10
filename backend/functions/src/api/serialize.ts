@@ -69,6 +69,9 @@ export function serializeActivity(doc: Doc): Record<string, unknown> | null {
   }
   if (typeof d.locationName === "string") out.locationName = d.locationName;
   if (typeof d.isCompleted === "boolean") out.isCompleted = d.isCompleted;
+  if (typeof d.reminderMinutesBefore === "number") {
+    out.reminderMinutesBefore = d.reminderMinutesBefore;
+  }
   if (typeof d.createdBy === "string") out.createdBy = d.createdBy;
   return out;
 }

@@ -65,5 +65,13 @@ export function activityDocFromBody(
 
   if (typeof body.isCompleted === "boolean") doc.isCompleted = body.isCompleted;
 
+  if (
+    typeof body.reminderMinutesBefore === "number" &&
+    Number.isFinite(body.reminderMinutesBefore) &&
+    body.reminderMinutesBefore >= 0
+  ) {
+    doc.reminderMinutesBefore = Math.floor(body.reminderMinutesBefore);
+  }
+
   return { doc, collectionIds };
 }

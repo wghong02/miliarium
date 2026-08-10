@@ -30,6 +30,10 @@ struct ActivityMediaSection: View {
         GridItem(.flexible(), spacing: 6),
     ]
 
+    /// Max media items per activity (also enforced by the backend on commit).
+    private static let maxPerActivity = 20
+    private var remainingSlots: Int { max(0, Self.maxPerActivity - media.count) }
+
     var body: some View {
         Section("Media") {
             if media.isEmpty && !isUploading {
@@ -65,12 +69,18 @@ struct ActivityMediaSection: View {
 
             PhotosPicker(
                 selection: $selectedPickerItems,
-                maxSelectionCount: 5,
+                maxSelectionCount: max(1, remainingSlots),
                 matching: .any(of: [.images, .videos])
             ) {
                 Label("Add Photo or Video", systemImage: "photo.badge.plus")
             }
-            .disabled(isUploading || uploadedBy == nil)
+            .disabled(isUploading || uploadedBy == nil || remainingSlots == 0)
+
+            if remainingSlots == 0 {
+                Text("This activity has the maximum of \(Self.maxPerActivity) files.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
 
             if let errorMessage {
                 Text(errorMessage)
@@ -137,6 +147,13 @@ struct ActivityMediaSection: View {
             isUploading = false
             uploadProgressLabel = nil
             selectedPickerItems = []
+        }
+
+        // Never exceed the per-activity cap, even across concurrent picks.
+        let items = Array(items.prefix(remainingSlots))
+        if items.isEmpty {
+            errorMessage = "This activity already has the maximum of \(Self.maxPerActivity) files."
+            return
         }
 
         for (index, item) in items.enumerated() {

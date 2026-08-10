@@ -60,6 +60,16 @@ jest.mock("firebase-admin/firestore", () => {
       },
       orderBy: () => api,
       limit: () => api,
+      count: () => ({
+        get: async () => {
+          const prefix = `${base}/`;
+          let n = 0;
+          for (const key of docs.keys()) {
+            if (key.startsWith(prefix) && !key.slice(prefix.length).includes("/")) n++;
+          }
+          return { data: () => ({ count: n }) };
+        },
+      }),
       add: async (data: any) => {
         const p = `${base}/auto${writes.length}`;
         writes.push({ op: "add", path: p, data });
@@ -265,6 +275,7 @@ describe("activities", () => {
           latitude: 10,
           longitude: 20,
           createdBy: "spoofed",
+          reminderMinutesBefore: 30,
         },
       })
     );
@@ -272,6 +283,7 @@ describe("activities", () => {
     const doc = writesFor("progressItems/P/activities/A1")[0];
     expect(doc.data.createdBy).toBe("U"); // forced, not "spoofed"
     expect(doc.data.location.latitude).toBe(10);
+    expect(doc.data.reminderMinutesBefore).toBe(30);
     // linked into c1
     const link = writesFor("progressItems/P/collections/c1")[0];
     expect(link.op).toBe("update");
@@ -481,6 +493,21 @@ describe("media", () => {
 
   it("commitMedia rejects a file over the 20 MB limit", async () => {
     storage.__setFile("activities/P/A/M.jpg", true, 21 * 1024 * 1024);
+    await expect(
+      media.commitMedia(
+        ctx({
+          params: { pid: "P", aid: "A" },
+          body: { mediaId: "M", storagePath: "activities/P/A/M.jpg", type: "image" },
+        })
+      )
+    ).rejects.toMatchObject({ status: 400 });
+  });
+
+  it("commitMedia rejects when the activity already has 20 files", async () => {
+    for (let i = 0; i < 20; i++) {
+      db.__setDoc(`progressItems/P/activities/A/media/existing${i}`, { type: "image" });
+    }
+    storage.__setFile("activities/P/A/M.jpg", true, 1000);
     await expect(
       media.commitMedia(
         ctx({

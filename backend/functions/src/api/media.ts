@@ -21,6 +21,7 @@ const db = getFirestore();
 const storage = getStorage();
 
 const MAX_MEDIA_BYTES = 20 * 1024 * 1024; // 20 MB per file
+const MAX_MEDIA_PER_ACTIVITY = 20;
 const UPLOAD_URL_TTL_MS = 15 * 60 * 1000;
 
 function mediaCollectionRef(pid: string, aid: string) {
@@ -114,6 +115,14 @@ export async function commitMedia(ctx: RequestContext): Promise<{ ok: true }> {
   if (size > MAX_MEDIA_BYTES) {
     await file.delete().catch(() => undefined);
     throw badRequest("Each file must be 20 MB or smaller.");
+  }
+
+  // Cap the number of media per activity. Counting excludes the doc we're about
+  // to write (it doesn't exist yet).
+  const count = (await mediaCollectionRef(pid, aid).count().get()).data().count;
+  if (count >= MAX_MEDIA_PER_ACTIVITY) {
+    await file.delete().catch(() => undefined);
+    throw badRequest(`An activity can have at most ${MAX_MEDIA_PER_ACTIVITY} files.`);
   }
 
   const doc: Record<string, unknown> = {

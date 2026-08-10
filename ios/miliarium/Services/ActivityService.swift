@@ -36,6 +36,7 @@ class ActivityService {
         longitude: Double? = nil,
         locationName: String? = nil,
         isCompleted: Bool? = nil,
+        reminderMinutesBefore: Int? = nil,
         collectionIds: [String] = [],
         createdBy: String? = nil
     ) async throws -> Activity {
@@ -49,6 +50,7 @@ class ActivityService {
             longitude: longitude,
             locationName: locationName,
             isCompleted: isCompleted,
+            reminderMinutesBefore: reminderMinutesBefore,
             collectionIds: collectionIds,
             createdBy: createdBy
         )
@@ -140,6 +142,7 @@ class ActivityService {
         longitude: Double?? = nil,
         locationName: String?? = nil,
         isCompleted: Bool?? = nil,
+        reminderMinutesBefore: Int?? = nil,
         collectionIds: [String]? = nil
     ) async throws {
         var updated = activity
@@ -154,6 +157,7 @@ class ActivityService {
         if let longitude { updated.longitude = longitude }
         if let locationName { updated.locationName = locationName }
         if let isCompleted { updated.isCompleted = isCompleted }
+        if let reminderMinutesBefore { updated.reminderMinutesBefore = reminderMinutesBefore }
 
         // Apply a new collection membership set if the caller passed one; the
         // backend reconciles the collection back-references against the stored

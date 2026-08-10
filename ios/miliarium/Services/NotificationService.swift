@@ -150,6 +150,64 @@ final class NotificationService {
         }
     }
 
+    // MARK: - Activity reminders (local notifications)
+
+    private func reminderId(_ activityId: String) -> String {
+        "activity-reminder-\(activityId)"
+    }
+
+    /// Cancels then (re)schedules a local reminder for an activity. A no-op /
+    /// cancel when there's no reminder set or the fire time is already past.
+    /// Called after an activity is created or edited.
+    func syncReminder(
+        activityId: String,
+        title: String,
+        timestamp: Date?,
+        reminderMinutesBefore: Int?
+    ) async {
+        cancelReminder(activityId: activityId)
+        guard let minutes = reminderMinutesBefore, let start = timestamp else { return }
+        let fireDate = start.addingTimeInterval(-Double(minutes) * 60)
+        guard fireDate > Date() else { return }
+
+        let content = UNMutableNotificationContent()
+        let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        content.title = trimmed.isEmpty ? "Upcoming activity" : trimmed
+        content.body = Self.reminderBody(minutesBefore: minutes)
+        content.sound = .default
+
+        let comps = Foundation.Calendar.current.dateComponents(
+            [.year, .month, .day, .hour, .minute], from: fireDate
+        )
+        let trigger = UNCalendarNotificationTrigger(dateMatching: comps, repeats: false)
+        let request = UNNotificationRequest(
+            identifier: reminderId(activityId), content: content, trigger: trigger
+        )
+        do {
+            try await UNUserNotificationCenter.current().add(request)
+            AppLogger.notification.debug("scheduled reminder activity=\(activityId) fire=\(fireDate)")
+        } catch {
+            AppLogger.notification.error("scheduleReminder failed: \(error.localizedDescription)")
+        }
+    }
+
+    /// Removes any pending reminder for the given activity (on delete).
+    func cancelReminder(activityId: String) {
+        UNUserNotificationCenter.current()
+            .removePendingNotificationRequests(withIdentifiers: [reminderId(activityId)])
+    }
+
+    private static func reminderBody(minutesBefore: Int) -> String {
+        switch minutesBefore {
+        case 0: return "Starting now."
+        case 1..<60: return "Starts in \(minutesBefore) minutes."
+        case 60: return "Starts in 1 hour."
+        case 61..<1440: return "Starts in \(minutesBefore / 60) hours."
+        case 1440: return "Starts in 1 day."
+        default: return "Starts in \(minutesBefore / 1440) days."
+        }
+    }
+
     // MARK: - Helpers
 
     private static var appVersion: String {

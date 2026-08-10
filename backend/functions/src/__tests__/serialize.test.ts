@@ -30,6 +30,7 @@ describe("serializeActivity", () => {
         createdAt: T("2026-08-09T09:00:00.000Z"),
         updatedAt: T("2026-08-09T09:30:00.000Z"),
         createdBy: "u1",
+        reminderMinutesBefore: 15,
       })
     )!;
     expect(out).toMatchObject({
@@ -40,6 +41,7 @@ describe("serializeActivity", () => {
       latitude: 1.5,
       longitude: -2.5,
       createdBy: "u1",
+      reminderMinutesBefore: 15,
       timestamp: "2026-08-09T10:00:00Z", // fractional seconds stripped
       createdAt: "2026-08-09T09:00:00Z",
     });

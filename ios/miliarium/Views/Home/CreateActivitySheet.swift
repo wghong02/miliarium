@@ -78,6 +78,7 @@ struct CreateActivitySheet: View {
     @State private var endDate = Date()
     @State private var hasEndTime = false
     @State private var endTime = Date()
+    @State private var reminder: ActivityReminder = .none
 
     // Location dimension. No gating toggle — the fields are always shown
     // and an activity has a location whenever both `latitude` and
@@ -272,6 +273,10 @@ struct CreateActivitySheet: View {
                     date: $endTime,
                     components: .hourAndMinute
                 )
+            }
+
+            if hasStartDate {
+                ReminderPickerRow(reminder: $reminder)
             }
 
             if let error = timeValidationError {
@@ -476,7 +481,7 @@ struct CreateActivitySheet: View {
 
         Task {
             do {
-                _ = try await activityService.createActivity(
+                let created = try await activityService.createActivity(
                     progressItemId: progressItemId,
                     title: trimmedTitle,
                     notes: cleanedNotes.isEmpty ? nil : cleanedNotes,
@@ -495,8 +500,16 @@ struct CreateActivitySheet: View {
                     longitude: longitude,
                     locationName: finalLocationName,
                     isCompleted: completionChoice.savedValue,
+                    reminderMinutesBefore: hasStartDate ? reminder.minutes : nil,
                     collectionIds: Array(selectedCollectionIds),
                     createdBy: auth.user?.uid
+                )
+                // Schedule the on-device reminder (if any) for this activity.
+                await notificationService.syncReminder(
+                    activityId: created.id,
+                    title: created.title,
+                    timestamp: created.timestamp,
+                    reminderMinutesBefore: created.reminderMinutesBefore
                 )
                 await MainActor.run {
                     isCreating = false
@@ -537,6 +550,7 @@ struct EditActivitySheet: View {
     @State private var endDate = Date()
     @State private var hasEndTime = false
     @State private var endTime = Date()
+    @State private var reminder: ActivityReminder = .none
     @State private var latitude: Double?
     @State private var longitude: Double?
     @State private var resolvedLocationName: String?
@@ -746,6 +760,10 @@ struct EditActivitySheet: View {
                 )
             }
 
+            if hasStartDate {
+                ReminderPickerRow(reminder: $reminder)
+            }
+
             if let error = timeValidationError {
                 Text(error)
                     .font(.caption)
@@ -927,6 +945,7 @@ struct EditActivitySheet: View {
         customLocationName = ""
         completionChoice = CompletionChoice.from(activity.isCompleted)
         selectedCollectionIds = Set(activity.collectionIds)
+        reminder = ActivityReminder(minutes: activity.reminderMinutesBefore)
     }
 
     private func loadCollections() async {
@@ -1014,6 +1033,7 @@ struct EditActivitySheet: View {
         // Always send the user's choice — `.notTracked` becomes nil
         // server-side, `.pending` is false, `.completed` is true.
         let isCompletedParam: Bool?? = .some(completionChoice.savedValue)
+        let reminderMinutes: Int? = hasStartDate ? reminder.minutes : nil
 
         Task {
             do {
@@ -1029,7 +1049,15 @@ struct EditActivitySheet: View {
                     longitude: longitudeParam,
                     locationName: locationNameParam,
                     isCompleted: isCompletedParam,
+                    reminderMinutesBefore: .some(reminderMinutes),
                     collectionIds: Array(selectedCollectionIds)
+                )
+                // Reschedule (or cancel) the on-device reminder to match.
+                await notificationService.syncReminder(
+                    activityId: activity.id,
+                    title: trimmedTitle,
+                    timestamp: computedStart,
+                    reminderMinutesBefore: reminderMinutes
                 )
                 await MainActor.run {
                     isUpdating = false
@@ -1049,6 +1077,7 @@ struct EditActivitySheet: View {
         do {
             try await activityService.deleteActivity(activity, progressItemId: progressItemId)
             await MainActor.run {
+                notificationService.cancelReminder(activityId: activity.id)
                 onDismiss()
                 dismiss()
             }
@@ -1105,6 +1134,57 @@ private enum CompletionChoice: Hashable, CaseIterable {
 /// A form row that shows a "set" `DatePicker` when filled and a tappable
 /// placeholder button when empty. Used for the four time fields so the
 /// editor renders every option up-front without a gating section toggle.
+// MARK: - Reminder (shared by Create + Edit)
+
+/// Local-reminder lead-time options for an activity with a start time.
+enum ActivityReminder: Int, CaseIterable, Identifiable {
+    case none = -1
+    case atTime = 0
+    case min5 = 5
+    case min15 = 15
+    case min30 = 30
+    case hour1 = 60
+    case hour3 = 180
+    case day1 = 1440
+
+    var id: Int { rawValue }
+
+    /// Minutes before the start; `nil` when no reminder is set.
+    var minutes: Int? { self == .none ? nil : rawValue }
+
+    var label: String {
+        switch self {
+        case .none:    return "None"
+        case .atTime:  return "At start time"
+        case .min5:    return "5 minutes before"
+        case .min15:   return "15 minutes before"
+        case .min30:   return "30 minutes before"
+        case .hour1:   return "1 hour before"
+        case .hour3:   return "3 hours before"
+        case .day1:    return "1 day before"
+        }
+    }
+
+    init(minutes: Int?) {
+        guard let minutes else { self = .none; return }
+        self = ActivityReminder(rawValue: minutes) ?? .none
+    }
+}
+
+/// Picker row for the reminder lead time. Shown in the Time section when a
+/// start date is set.
+private struct ReminderPickerRow: View {
+    @Binding var reminder: ActivityReminder
+
+    var body: some View {
+        Picker("Remind me", selection: $reminder) {
+            ForEach(ActivityReminder.allCases) { option in
+                Text(option.label).tag(option)
+            }
+        }
+    }
+}
+
 private struct OptionalDatePickerRow: View {
     let label: String
     let placeholder: String
