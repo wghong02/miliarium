@@ -105,6 +105,12 @@ struct MiliariumApp: App {
                         Task { await notificationService.reconcileActivityReminders(progresses: progresses) }
                     }
                 }
+                // Widget deep links: miliarium://progress/{id}.
+                .onOpenURL { url in
+                    guard url.scheme == "miliarium", url.host == "progress" else { return }
+                    let pid = url.lastPathComponent
+                    if !pid.isEmpty { notificationRouter.pending = .progress(pid) }
+                }
                 // Reschedule the weekly recap whenever its schedule changes.
                 .onChange(of: memorySettings.scheduleSignature) { _, _ in
                     Task {

@@ -12,13 +12,22 @@ struct NearbyMapEntryView: View {
     let entry: NearbyMapEntry
 
     var body: some View {
-        if !entry.snapshot.hasCenter {
-            noLocationState
-        } else if entry.snapshot.items.isEmpty {
-            nothingNearbyState
-        } else {
-            mapContent
+        Group {
+            if !entry.snapshot.hasCenter {
+                noLocationState
+            } else if entry.snapshot.items.isEmpty {
+                nothingNearbyState
+            } else {
+                mapContent
+            }
         }
+        .widgetURL(deepLink)
+    }
+
+    /// Tapping the widget opens the nearest activity's progress.
+    private var deepLink: URL? {
+        guard let pid = entry.snapshot.items.first?.progressItemId else { return nil }
+        return URL(string: "miliarium://progress/\(pid)")
     }
 
     // MARK: - States

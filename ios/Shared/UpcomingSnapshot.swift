@@ -10,12 +10,30 @@ struct UpcomingSnapshot: Codable, Sendable {
     let items: [Item]
 
     struct Item: Codable, Identifiable, Sendable, Hashable {
-        /// Matches `Activity.id` so future deep links can navigate to the
-        /// edit sheet by tapping a widget row.
+        /// Matches `Activity.id`.
         let id: String
+        /// Owning progress id, for deep-linking a widget tap. Optional so older
+        /// cached snapshots still decode.
+        let progressItemId: String?
         let title: String
         let progressTitle: String
         let timestamp: Date
         let hasLocation: Bool
+
+        init(
+            id: String,
+            progressItemId: String? = nil,
+            title: String,
+            progressTitle: String,
+            timestamp: Date,
+            hasLocation: Bool
+        ) {
+            self.id = id
+            self.progressItemId = progressItemId
+            self.title = title
+            self.progressTitle = progressTitle
+            self.timestamp = timestamp
+            self.hasLocation = hasLocation
+        }
     }
 }

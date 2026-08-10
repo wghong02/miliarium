@@ -24,6 +24,7 @@ struct MemoriesView: View {
     @Environment(\.dismiss) private var dismiss
 
     @State private var isLoading = true
+    @State private var loadFailed = false
     @State private var groups: [MemoryDayGroup] = []
 
     private let now = Date()
@@ -37,6 +38,10 @@ struct MemoriesView: View {
                 if isLoading {
                     ProgressView("Gathering your week…")
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else if loadFailed {
+                    RetryableErrorView(message: "We couldn't load your week.") {
+                        Task { await load() }
+                    }
                 } else if groups.isEmpty {
                     ContentUnavailableView(
                         "A quiet week",
@@ -84,30 +89,49 @@ struct MemoriesView: View {
     }
 
     private func load() async {
+        isLoading = true
+        loadFailed = false
         let progresses = progressStore.progresses
         let start = weekStart
         let end = now
 
         var items: [MemoryItem] = []
-        await withTaskGroup(of: [MemoryItem].self) { group in
+        var anyFailed = false
+        await withTaskGroup(of: (items: [MemoryItem], failed: Bool).self) { group in
             for progress in progresses {
                 let pid = progress.id
                 let ptitle = progress.title
                 group.addTask {
-                    let activities = (try? await activityService.fetchActivities(for: pid)) ?? []
-                    return activities.compactMap { activity in
-                        let date = activity.timestamp ?? activity.createdAt
-                        guard date >= start, date <= end else { return nil }
-                        return MemoryItem(
-                            id: "\(pid)-\(activity.id)",
-                            activity: activity,
-                            progressTitle: ptitle,
-                            date: date
-                        )
+                    do {
+                        let activities = try await activityService.fetchActivities(for: pid)
+                        let mapped = activities.compactMap { activity -> MemoryItem? in
+                            let date = activity.timestamp ?? activity.createdAt
+                            guard date >= start, date <= end else { return nil }
+                            return MemoryItem(
+                                id: "\(pid)-\(activity.id)",
+                                activity: activity,
+                                progressTitle: ptitle,
+                                date: date
+                            )
+                        }
+                        return (mapped, false)
+                    } catch {
+                        return ([], true)
                     }
                 }
             }
-            for await sub in group { items.append(contentsOf: sub) }
+            for await result in group {
+                items.append(contentsOf: result.items)
+                if result.failed { anyFailed = true }
+            }
+        }
+
+        // Only surface a full error state when we got nothing AND something
+        // failed; partial results are shown as-is.
+        if items.isEmpty && anyFailed {
+            loadFailed = true
+            isLoading = false
+            return
         }
 
         let cal = Foundation.Calendar.current
