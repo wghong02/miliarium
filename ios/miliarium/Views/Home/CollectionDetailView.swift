@@ -86,7 +86,20 @@ struct CollectionDetailView: View {
                 }
             }
             .onAppear { setUpListeners() }
-            .onDisappear { tearDownListeners() }
+            .onDisappear {
+                tearDownListeners()
+                // Auto-refresh this collection's denormalized stats from the
+                // activities we already have, so the collections list stays
+                // fresh without a manual "Update stats".
+                let collection = currentCollection
+                let activities = allActivities
+                let pid = progressItemId
+                Task {
+                    try? await activityCollectionService.refreshStats(
+                        for: collection, progressItemId: pid, activities: activities
+                    )
+                }
+            }
             .sheet(isPresented: $showEditCollection) {
                 EditCollectionSheet(
                     collection: currentCollection,

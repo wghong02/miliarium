@@ -77,14 +77,33 @@ struct MemoriesView: View {
         .task { await load() }
     }
 
+    private var allItems: [MemoryItem] { groups.flatMap(\.items) }
+
     private var header: some View {
-        let count = groups.reduce(0) { $0 + $1.items.count }
-        return VStack(alignment: .leading, spacing: 4) {
-            Text("Your week in review")
-                .font(.title2.bold())
-            Text("\(count) \(count == 1 ? "thing" : "things") across \(Self.rangeText(weekStart, now)).")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
+        let items = allItems
+        let places = items.filter { $0.activity.hasLocation }.count
+        let completed = items.filter { $0.activity.isCompleted == true }.count
+        return VStack(alignment: .leading, spacing: 12) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Your week in review")
+                    .font(.title2.bold())
+                Text(Self.rangeText(weekStart, now))
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            }
+            HStack(spacing: 10) {
+                MemoryStatTile(value: items.count,
+                               label: items.count == 1 ? "thing" : "things",
+                               systemImage: "sparkle")
+                if places > 0 {
+                    MemoryStatTile(value: places,
+                                   label: places == 1 ? "place" : "places",
+                                   systemImage: "mappin")
+                }
+                if completed > 0 {
+                    MemoryStatTile(value: completed, label: "done", systemImage: "checkmark")
+                }
+            }
         }
     }
 
@@ -157,6 +176,26 @@ struct MemoriesView: View {
         let fmt = DateFormatter()
         fmt.dateFormat = "MMM d"
         return "\(fmt.string(from: start)) – \(fmt.string(from: end))"
+    }
+}
+
+private struct MemoryStatTile: View {
+    let value: Int
+    let label: String
+    let systemImage: String
+
+    var body: some View {
+        VStack(spacing: 2) {
+            HStack(spacing: 4) {
+                Image(systemName: systemImage).font(.caption)
+                Text("\(value)").font(.title3.bold())
+            }
+            Text(label).font(.caption2).foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 10)
+        .background(Color(.secondarySystemGroupedBackground))
+        .clipShape(RoundedRectangle(cornerRadius: 10))
     }
 }
 

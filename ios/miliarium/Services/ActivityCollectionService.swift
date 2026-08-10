@@ -134,13 +134,20 @@ class ActivityCollectionService {
     @discardableResult
     func refreshStats(
         for collection: ActivityCollection,
-        progressItemId: String
+        progressItemId: String,
+        activities: [Activity]? = nil
     ) async throws -> ActivityCollection {
         AppLogger.activityCollection.debug("refreshStats collectionId=\(collection.id) progressId=\(progressItemId)")
         do {
-            // Fetch the progress's activities (via the backend) and compute the
+            // Use caller-supplied activities when available (avoids a re-fetch);
+            // otherwise fetch the progress's activities via the backend. Compute
             // stats client-side, then persist the result through the backend.
-            let allActivities = try await activityService.fetchActivities(for: progressItemId)
+            let allActivities: [Activity]
+            if let activities {
+                allActivities = activities
+            } else {
+                allActivities = try await activityService.fetchActivities(for: progressItemId)
+            }
 
             let memberIds = Set(collection.activityIds)
             let members = allActivities.filter { memberIds.contains($0.id) }

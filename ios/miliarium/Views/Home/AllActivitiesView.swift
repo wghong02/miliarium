@@ -26,10 +26,22 @@ struct AllActivitiesView: View {
     @State private var showCreateActivity = false
     @State private var isLoading = true
     @State private var errorMessage: String?
+    @State private var searchText = ""
 
     /// Newest first.
     private var sortedActivities: [Activity] {
         activities.sorted { $0.createdAt > $1.createdAt }
+    }
+
+    /// Search over title, notes, and location name.
+    private var filteredActivities: [Activity] {
+        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !query.isEmpty else { return sortedActivities }
+        return sortedActivities.filter { activity in
+            activity.title.lowercased().contains(query)
+                || (activity.notes?.lowercased().contains(query) ?? false)
+                || (activity.locationName?.lowercased().contains(query) ?? false)
+        }
     }
 
     var body: some View {
@@ -46,6 +58,12 @@ struct AllActivitiesView: View {
                     }
                 } else {
                     activityList
+                        .searchable(text: $searchText, prompt: "Search activities")
+                        .overlay {
+                            if filteredActivities.isEmpty && !searchText.isEmpty {
+                                ContentUnavailableView.search(text: searchText)
+                            }
+                        }
                 }
             }
             .navigationTitle("All activities")
@@ -87,7 +105,7 @@ struct AllActivitiesView: View {
     private var activityList: some View {
         List {
             Section {
-                ForEach(sortedActivities) { activity in
+                ForEach(filteredActivities) { activity in
                     ActivityMemberRow(activity: activity)
                         .contentShape(Rectangle())
                         .onTapGesture { editingActivity = activity }
