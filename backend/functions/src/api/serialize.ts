@@ -129,6 +129,9 @@ export function serializeMedia(doc: Doc): Record<string, unknown> | null {
     uploadedBy: d.uploadedBy,
     uploadedAt,
   };
+  if (typeof d.thumbnailStoragePath === "string") {
+    out.thumbnailStoragePath = d.thumbnailStoragePath;
+  }
   if (typeof d.sizeBytes === "number") out.sizeBytes = d.sizeBytes;
   if (typeof d.width === "number") out.width = d.width;
   if (typeof d.height === "number") out.height = d.height;

@@ -13,7 +13,7 @@
 import { randomUUID } from "node:crypto";
 import { getFirestore, FieldValue } from "firebase-admin/firestore";
 import { getStorage } from "firebase-admin/storage";
-import { RequestContext, requireString, badRequest } from "./http";
+import { RequestContext, requireString, optionalString, badRequest } from "./http";
 import { assertProgressMember } from "./auth";
 import { serializeMedia, compact } from "./serialize";
 
@@ -22,7 +22,8 @@ const storage = getStorage();
 
 const MAX_MEDIA_BYTES = 20 * 1024 * 1024; // 20 MB per file
 const MAX_MEDIA_PER_ACTIVITY = 20;
-const UPLOAD_URL_TTL_MS = 15 * 60 * 1000;
+// 1 hour — long enough for a background upload that starts while backgrounded.
+const UPLOAD_URL_TTL_MS = 60 * 60 * 1000;
 
 function mediaCollectionRef(pid: string, aid: string) {
   return db
@@ -58,12 +59,17 @@ function numberOrUndefined(value: unknown): number | undefined {
 }
 
 /**
- * POST /progress/:pid/activities/:aid/media/upload-url — mint a signed PUT URL.
- * Body: `{ contentType, ext }`. Returns `{ mediaId, storagePath, uploadURL }`.
+ * POST /progress/:pid/activities/:aid/media/upload-url — mint signed PUT URLs
+ * for the full-size object and a JPEG thumbnail (uploaded separately by the
+ * client). Body: `{ contentType, ext }`.
  */
-export async function createUploadURL(
-  ctx: RequestContext
-): Promise<{ mediaId: string; storagePath: string; uploadURL: string }> {
+export async function createUploadURL(ctx: RequestContext): Promise<{
+  mediaId: string;
+  storagePath: string;
+  uploadURL: string;
+  thumbnailStoragePath: string;
+  thumbnailUploadURL: string;
+}> {
   const { pid, aid } = ctx.params;
   await assertProgressMember(ctx.uid, pid);
 
@@ -71,15 +77,24 @@ export async function createUploadURL(
   const ext = sanitizeExt(requireString(ctx.body, "ext"));
   const mediaId = randomUUID();
   const storagePath = `activities/${pid}/${aid}/${mediaId}.${ext}`;
+  const thumbnailStoragePath = `activities/${pid}/${aid}/${mediaId}_thumb.jpg`;
 
-  const [uploadURL] = await storage.bucket().file(storagePath).getSignedUrl({
+  const bucket = storage.bucket();
+  const expires = Date.now() + UPLOAD_URL_TTL_MS;
+  const [uploadURL] = await bucket.file(storagePath).getSignedUrl({
     version: "v4",
     action: "write",
-    expires: Date.now() + UPLOAD_URL_TTL_MS,
+    expires,
     contentType,
   });
+  const [thumbnailUploadURL] = await bucket.file(thumbnailStoragePath).getSignedUrl({
+    version: "v4",
+    action: "write",
+    expires,
+    contentType: "image/jpeg",
+  });
 
-  return { mediaId, storagePath, uploadURL };
+  return { mediaId, storagePath, uploadURL, thumbnailStoragePath, thumbnailUploadURL };
 }
 
 /**
@@ -138,6 +153,14 @@ export async function commitMedia(ctx: RequestContext): Promise<{ ok: true }> {
   if (width !== undefined) doc.width = width;
   if (height !== undefined) doc.height = height;
   if (durationSeconds !== undefined) doc.durationSeconds = durationSeconds;
+
+  // Record the thumbnail only if it actually made it to Storage — a failed
+  // thumbnail upload just means the client falls back to the full image.
+  const thumb = optionalString(ctx.body, "thumbnailStoragePath");
+  if (thumb && thumb.startsWith(prefix)) {
+    const [thumbExists] = await storage.bucket().file(thumb).exists();
+    if (thumbExists) doc.thumbnailStoragePath = thumb;
+  }
 
   await mediaRef(pid, aid, mediaId).set(doc);
   return { ok: true };

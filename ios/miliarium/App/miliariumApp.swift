@@ -125,6 +125,8 @@ struct MiliariumApp: App {
                 .onChange(of: scenePhase) { _, newPhase in
                     if newPhase == .active {
                         Task { await notificationService.clearBadge() }
+                        // Recover any uploaded-but-uncommitted media.
+                        Task { await MediaCommitStore.shared.reconcile() }
                     }
                 }
         }

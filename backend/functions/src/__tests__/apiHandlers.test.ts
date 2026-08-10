@@ -503,6 +503,45 @@ describe("media", () => {
     ).rejects.toMatchObject({ status: 400 });
   });
 
+  it("commitMedia stores the thumbnail path only when the thumbnail exists", async () => {
+    storage.__setFile("activities/P/A/M.jpg", true, 1000);
+    storage.__setFile("activities/P/A/M_thumb.jpg", true, 100);
+    await media.commitMedia(
+      ctx({
+        params: { pid: "P", aid: "A" },
+        body: {
+          mediaId: "M",
+          storagePath: "activities/P/A/M.jpg",
+          type: "image",
+          thumbnailStoragePath: "activities/P/A/M_thumb.jpg",
+        },
+      })
+    );
+    expect(writesFor("progressItems/P/activities/A/media/M")[0].data.thumbnailStoragePath).toBe(
+      "activities/P/A/M_thumb.jpg"
+    );
+
+    // Missing thumbnail → field omitted (client falls back to the full image).
+    db.__reset();
+    db.__setDoc("progressItems/P", { ownerUserId: "U" });
+    storage.__resetFiles();
+    storage.__setFile("activities/P/A/M2.jpg", true, 1000);
+    await media.commitMedia(
+      ctx({
+        params: { pid: "P", aid: "A" },
+        body: {
+          mediaId: "M2",
+          storagePath: "activities/P/A/M2.jpg",
+          type: "image",
+          thumbnailStoragePath: "activities/P/A/M2_thumb.jpg",
+        },
+      })
+    );
+    expect(
+      writesFor("progressItems/P/activities/A/media/M2")[0].data.thumbnailStoragePath
+    ).toBeUndefined();
+  });
+
   it("commitMedia rejects when the activity already has 20 files", async () => {
     for (let i = 0; i < 20; i++) {
       db.__setDoc(`progressItems/P/activities/A/media/existing${i}`, { type: "image" });

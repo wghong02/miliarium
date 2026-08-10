@@ -110,6 +110,7 @@ describe("serializeMedia", () => {
       doc("m1", {
         type: "video",
         storagePath: "activities/p/a/m.mov",
+        thumbnailStoragePath: "activities/p/a/m_thumb.jpg",
         uploadedBy: "u1",
         uploadedAt: T("2026-08-09T00:00:00Z"),
         sizeBytes: 123,
@@ -122,6 +123,7 @@ describe("serializeMedia", () => {
       id: "m1",
       type: "video",
       storagePath: "activities/p/a/m.mov",
+      thumbnailStoragePath: "activities/p/a/m_thumb.jpg",
       uploadedBy: "u1",
       uploadedAt: "2026-08-09T00:00:00Z",
       sizeBytes: 123,

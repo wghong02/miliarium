@@ -28,7 +28,22 @@ final class MiliariumAppDelegate: NSObject, UIApplicationDelegate, MessagingDele
         // Own notification presentation + taps so foreground pushes are shown
         // and taps deep-link (see the `data` payload set in the backend).
         UNUserNotificationCenter.current().delegate = self
+        // Bring up the background upload session and commit any media whose bytes
+        // uploaded but whose doc wasn't written yet (e.g. app was killed).
+        BackgroundUploadManager.shared.activate()
+        Task { await MediaCommitStore.shared.reconcile() }
         return true
+    }
+
+    /// Relaunched to finish background uploads. Stash the completion handler and
+    /// make sure the session (delegate) exists to receive the queued events.
+    func application(
+        _ application: UIApplication,
+        handleEventsForBackgroundURLSession identifier: String,
+        completionHandler: @escaping () -> Void
+    ) {
+        BackgroundUploadManager.shared.backgroundCompletionHandler = completionHandler
+        BackgroundUploadManager.shared.activate()
     }
 
     /// Called by iOS after `UIApplication.shared.registerForRemoteNotifications()`
