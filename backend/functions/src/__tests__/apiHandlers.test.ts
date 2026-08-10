@@ -108,8 +108,46 @@ jest.mock("firebase-admin/firestore", () => {
     };
   }
 
+  // Minimal collection-group query: scans every doc whose second-to-last path
+  // segment matches `name`, applying `==` where-filters against stored data.
+  function collectionGroupRef(name: string): any {
+    const wheres: [string, string, unknown][] = [];
+    const matches = () => {
+      const out: { path: string; data: any }[] = [];
+      for (const [path, data] of docs.entries()) {
+        const parts = path.split("/");
+        if (parts[parts.length - 2] !== name) continue;
+        if (wheres.every(([f, op, v]) => (op === "==" ? (data as any)?.[f] === v : true))) {
+          out.push({ path, data });
+        }
+      }
+      return out;
+    };
+    const api: any = {
+      where: (f: string, op: string, v: unknown) => {
+        wheres.push([f, op, v]);
+        return api;
+      },
+      count: () => ({ get: async () => ({ data: () => ({ count: matches().length }) }) }),
+      get: async () => {
+        const rows = matches();
+        return {
+          empty: rows.length === 0,
+          size: rows.length,
+          docs: rows.map((r) => ({
+            id: r.path.split("/").pop(),
+            data: () => r.data,
+            ref: docRef(r.path),
+          })),
+        };
+      },
+    };
+    return api;
+  }
+
   const db = {
     collection: (name: string) => collectionRef(name),
+    collectionGroup: (name: string) => collectionGroupRef(name),
     batch,
     getAll: async (...refs: any[]) => refs.map((r) => snap(r.path)),
     __writes: writes,
@@ -452,6 +490,27 @@ describe("invitations", () => {
     await expect(
       invitations.acceptInvitation(ctx({ uid: "other", params: { id: "INV" } }))
     ).rejects.toMatchObject({ status: 403 });
+  });
+
+  it("sendInvitation rejects when the progress is already full (409)", async () => {
+    // Owner + one collaborator = 2 members (the cap).
+    db.__setDoc("users/sender/progressLinks/P", { progressItemId: "P", role: "owner" });
+    db.__setDoc("users/collab/progressLinks/P", { progressItemId: "P", role: "collaborator" });
+    db.__setQuery("users", [["email", "==", "b@x.com"]], [{ id: "recipient", data: {} }]);
+    await expect(
+      invitations.sendInvitation(ctx({ uid: "sender", body: sendBody }))
+    ).rejects.toMatchObject({ status: 409, code: "limit-reached" });
+    expect(db.__writes.some((w: any) => w.op === "add")).toBe(false);
+  });
+
+  it("acceptInvitation rejects when the progress is already full (409)", async () => {
+    db.__setDoc("users/owner/progressLinks/P", { progressItemId: "P", role: "owner" });
+    db.__setDoc("users/collab/progressLinks/P", { progressItemId: "P", role: "collaborator" });
+    db.__setDoc("invitations/INV", { toUserId: "me", fromUserId: "owner", progressItemId: "P" });
+    await expect(
+      invitations.acceptInvitation(ctx({ uid: "me", params: { id: "INV" } }))
+    ).rejects.toMatchObject({ status: 409, code: "limit-reached" });
+    expect(writesFor("users/me/progressLinks/P")).toHaveLength(0);
   });
 
   it("revokeInvitation is sender-only", async () => {

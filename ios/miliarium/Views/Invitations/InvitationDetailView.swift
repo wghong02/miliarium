@@ -6,6 +6,8 @@ struct InvitationDetailView: View {
 
     let invitation: Invitation
 
+    @State private var acceptError: String?
+
     var body: some View {
         NavigationStack {
             VStack(spacing: 20) {
@@ -81,13 +83,28 @@ struct InvitationDetailView: View {
                     }
                 }
             }
+            .alert(
+                "Couldn't accept",
+                isPresented: Binding(
+                    get: { acceptError != nil },
+                    set: { if !$0 { acceptError = nil } }
+                )
+            ) {
+                Button("OK", role: .cancel) { acceptError = nil }
+            } message: {
+                Text(acceptError ?? "")
+            }
         }
     }
 
     private func acceptInvitation() {
         Task {
-            await invitationVM.acceptInvitation(invitation)
-            dismiss()
+            if await invitationVM.acceptInvitation(invitation) {
+                dismiss()
+            } else {
+                // Keep the sheet open and explain why (e.g. progress full).
+                acceptError = invitationVM.errorMessage
+            }
         }
     }
 

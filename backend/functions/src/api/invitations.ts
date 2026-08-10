@@ -13,9 +13,10 @@ import {
   forbidden,
   badRequest,
   conflict,
+  limitReached,
 } from "./http";
 import { assertProgressMember } from "./auth";
-import { LIMITS, clampText } from "./limits";
+import { LIMITS, MAX_PROGRESS_MEMBERS, clampText } from "./limits";
 import { serializeInvitation, compact } from "./serialize";
 
 const db = getFirestore();
@@ -24,6 +25,20 @@ async function loadInvitation(id: string) {
   const snap = await db.collection("invitations").doc(id).get();
   if (!snap.exists) throw notFound("Invitation not found.");
   return snap;
+}
+
+/**
+ * Current number of people on a progress — one `progressLinks` doc per member
+ * (owner + collaborators). Uses the collection-group index on
+ * `progressLinks.progressItemId`.
+ */
+async function memberCount(progressItemId: string): Promise<number> {
+  const snap = await db
+    .collectionGroup("progressLinks")
+    .where("progressItemId", "==", progressItemId)
+    .count()
+    .get();
+  return snap.data().count;
 }
 
 /**
@@ -75,6 +90,18 @@ export async function sendInvitation(ctx: RequestContext): Promise<{ ok: true }>
   const toUserId = found.docs[0].id;
   if (toUserId === uid) throw badRequest("You can't invite yourself.");
 
+  // Block new invites once the progress is full. Existing members fall through
+  // (they'll hit the "already accepted" path below rather than a cap error).
+  const recipientLink = await db
+    .collection("users")
+    .doc(toUserId)
+    .collection("progressLinks")
+    .doc(progressItemId)
+    .get();
+  if (!recipientLink.exists && (await memberCount(progressItemId)) >= MAX_PROGRESS_MEMBERS) {
+    throw limitReached(`A progress can have at most ${MAX_PROGRESS_MEMBERS} people.`);
+  }
+
   // Dedup by (sender, recipient, progress): reopen an existing row rather than
   // creating a parallel one.
   const existing = await db
@@ -121,6 +148,13 @@ export async function acceptInvitation(ctx: RequestContext): Promise<{ ok: true 
     .doc(inv.toUserId)
     .collection("progressLinks")
     .doc(inv.progressItemId);
+
+  // Authoritative member-cap enforcement: only when this would add a *new*
+  // member (re-accepting an existing link stays idempotent).
+  const linkSnap = await linkRef.get();
+  if (!linkSnap.exists && (await memberCount(inv.progressItemId)) >= MAX_PROGRESS_MEMBERS) {
+    throw limitReached(`This progress already has the maximum of ${MAX_PROGRESS_MEMBERS} people.`);
+  }
 
   const batch = db.batch();
   batch.update(snap.ref, {

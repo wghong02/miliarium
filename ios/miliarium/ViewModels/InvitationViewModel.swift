@@ -129,14 +129,19 @@ final class InvitationViewModel {
         }
     }
 
-    func acceptInvitation(_ invitation: Invitation) async {
+    /// Returns `true` when the invitation was accepted; `false` (with
+    /// `errorMessage` set) when it failed — e.g. the progress is already full.
+    @discardableResult
+    func acceptInvitation(_ invitation: Invitation) async -> Bool {
         AppLogger.invitationVM.debug("acceptInvitation id=\(invitation.id)")
         do {
             try await invitationService.acceptInvitation(invitation.id)
             errorMessage = nil
+            return true
         } catch {
             AppLogger.invitationVM.error("acceptInvitation failed id=\(invitation.id): \(error)")
             errorMessage = error.localizedDescription
+            return false
         }
     }
 

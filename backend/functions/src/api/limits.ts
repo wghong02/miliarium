@@ -17,6 +17,13 @@ export const LIMITS = {
  */
 export const MAX_PROGRESS_ITEMS = 2;
 
+/**
+ * Cap on how many people (owner + collaborators) a single progress may have.
+ * Enforced when an invitation is accepted (authoritative) and, for early
+ * feedback, when a new invitation is sent.
+ */
+export const MAX_PROGRESS_MEMBERS = 2;
+
 /** Trims and hard-truncates a string to `max` characters. */
 export function clampText(value: string, max: number): string {
   return value.trim().slice(0, max);
