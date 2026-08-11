@@ -13,3 +13,7 @@ npm-debug.log*
 .env
 .env.local
 .runtimeconfig.json
+
+# Live e2e test credentials (real accounts/keys) — never commit.
+# The committed template is credentials.e2e.example.json.
+src/__integration__/credentials.e2e.json
