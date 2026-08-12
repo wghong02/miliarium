@@ -4,6 +4,7 @@ import FirebaseAuth
 struct ProfileSectionView: View {
     @Environment(AuthViewModel.self) private var auth
     @Environment(OnboardingState.self) private var onboardingState
+    @Environment(MemorySettings.self) private var memorySettings
 
     @State private var appUser: AppUser?
     @State private var name = ""
@@ -15,6 +16,9 @@ struct ProfileSectionView: View {
     @State private var showDeleteAccount = false
     @State private var deletePassword = ""
     @State private var isDeletingAccount = false
+    @State private var blockedUsers: [AppUser] = []
+    @State private var blockedUserIds: [String] = []
+    @State private var showMemories = false
 
     private var trimmedName: String {
         name.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -29,7 +33,10 @@ struct ProfileSectionView: View {
             List {
                 accountSection
                 nameSection
+                memoriesSection
                 helpSection
+                legalSection
+                blockedSection
                 if let errorMessage {
                     Section {
                         Text(errorMessage)
@@ -45,7 +52,13 @@ struct ProfileSectionView: View {
                 deleteAccountSection
             }
             .navigationTitle("Profile")
-            .task { await loadProfile() }
+            .sheet(isPresented: $showMemories) {
+                MemoriesView()
+            }
+            .task {
+                await loadProfile()
+                await loadBlockedUsers()
+            }
             .alert("Delete account?", isPresented: $showDeleteAccount) {
                 SecureField("Password", text: $deletePassword)
                     .textContentType(.password)
@@ -141,6 +154,87 @@ struct ProfileSectionView: View {
         }
     }
 
+    private var memoriesSection: some View {
+        Section {
+            Toggle("Weekly recap", isOn: Binding(
+                get: { memorySettings.isEnabled },
+                set: { memorySettings.isEnabled = $0 }
+            ))
+            if memorySettings.isEnabled {
+                Picker("Day", selection: Binding(
+                    get: { memorySettings.weekday },
+                    set: { memorySettings.weekday = $0 }
+                )) {
+                    ForEach(1...7, id: \.self) { w in
+                        Text(Foundation.Calendar.current.weekdaySymbols[w - 1]).tag(w)
+                    }
+                }
+                DatePicker(
+                    "Time",
+                    selection: Binding(
+                        get: { memorySettings.timeAsDate },
+                        set: { memorySettings.setTime(from: $0) }
+                    ),
+                    displayedComponents: .hourAndMinute
+                )
+                NotificationsDisabledNote()
+            }
+            Button {
+                showMemories = true
+            } label: {
+                Label("View this week's memories", systemImage: "sparkles")
+            }
+        } header: {
+            Text("Memories")
+        } footer: {
+            Text("A weekly summary of the past 7 days, with a notification at the set time. It also appears automatically the first time you open the app after then.")
+        }
+    }
+
+    private var legalSection: some View {
+        Section {
+            Link(destination: Legal.termsURL) {
+                Label("Terms of Use", systemImage: "doc.text")
+            }
+            Link(destination: Legal.privacyURL) {
+                Label("Privacy Policy", systemImage: "hand.raised")
+            }
+            if let supportURL = URL(string: "mailto:\(Legal.supportEmail)") {
+                Link(destination: supportURL) {
+                    Label("Contact support", systemImage: "envelope")
+                }
+            }
+        } header: {
+            Text("Legal & Support")
+        } footer: {
+            Text("Miliarium has zero tolerance for objectionable content or abusive behavior. Report content or block a user from the invitation they sent you.")
+        }
+    }
+
+    @ViewBuilder
+    private var blockedSection: some View {
+        if !blockedUserIds.isEmpty {
+            Section {
+                ForEach(blockedUserIds, id: \.self) { id in
+                    HStack {
+                        Text(blockedDisplayName(for: id))
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                        Spacer()
+                        Button("Unblock") {
+                            Task { await unblock(id) }
+                        }
+                        .buttonStyle(.borderless)
+                    }
+                }
+            } header: {
+                Text("Blocked users")
+            } footer: {
+                Text("You won't see invitations or content from blocked users.")
+            }
+        }
+    }
+
     private var deleteAccountSection: some View {
         Section {
             Button(role: .destructive) {
@@ -175,6 +269,31 @@ struct ProfileSectionView: View {
         } catch {
             errorMessage = "Couldn't load profile: \(error.localizedDescription)"
         }
+    }
+
+    private func loadBlockedUsers() async {
+        guard let uid = auth.user?.uid else { return }
+        do {
+            let ids = try await moderationService.fetchBlockedUserIds(for: uid)
+            blockedUserIds = ids
+            blockedUsers = ids.isEmpty ? [] : (try? await userService.fetchUsers(ids: ids)) ?? []
+        } catch {
+            // Best-effort; the section just stays empty on failure.
+        }
+    }
+
+    private func unblock(_ id: String) async {
+        guard let uid = auth.user?.uid else { return }
+        do {
+            try await moderationService.unblockUser(id, by: uid)
+            await loadBlockedUsers()
+        } catch {
+            errorMessage = "Couldn't unblock: \(error.localizedDescription)"
+        }
+    }
+
+    private func blockedDisplayName(for id: String) -> String {
+        blockedUsers.first(where: { $0.id == id })?.displayString ?? id
     }
 
     private func saveName() async {

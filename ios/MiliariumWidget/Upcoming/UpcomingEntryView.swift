@@ -25,6 +25,13 @@ struct UpcomingEntryView: View {
                 Spacer(minLength: 0)
             }
         }
+        .widgetURL(deepLink)
+    }
+
+    /// Tapping the widget opens the soonest activity's progress.
+    private var deepLink: URL? {
+        guard let pid = entry.items.first?.progressItemId else { return nil }
+        return URL(string: "miliarium://progress/\(pid)")
     }
 
     private var header: some View {

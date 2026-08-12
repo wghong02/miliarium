@@ -18,6 +18,13 @@ ui-debug.log
 .firebase/
 .runtimeconfig.json
 
+# The Firebase CLI materializes these at the config root during
+# `emulators:exec` (functions emulator); the real npm package lives in
+# functions/, so these are throwaway.
+/node_modules/
+/package.json
+/package-lock.json
+
 # Environment
 .env
 .env.local

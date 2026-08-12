@@ -19,12 +19,6 @@ class ActivityService {
             .collection("activities")
     }
 
-    private func collectionsRef(for progressItemId: String) -> CollectionReference {
-        db.collection("progressItems")
-            .document(progressItemId)
-            .collection("collections")
-    }
-
     // MARK: - Create
 
     /// Creates an activity and, in the same atomic batch, appends its ID to
@@ -42,6 +36,7 @@ class ActivityService {
         longitude: Double? = nil,
         locationName: String? = nil,
         isCompleted: Bool? = nil,
+        reminderMinutesBefore: Int? = nil,
         collectionIds: [String] = [],
         createdBy: String? = nil
     ) async throws -> Activity {
@@ -55,29 +50,18 @@ class ActivityService {
             longitude: longitude,
             locationName: locationName,
             isCompleted: isCompleted,
+            reminderMinutesBefore: reminderMinutesBefore,
             collectionIds: collectionIds,
             createdBy: createdBy
         )
 
         AppLogger.activity.debug("createActivity progressId=\(progressItemId) title=\(title) collections=\(collectionIds)")
-        let activityRef = activitiesRef(for: progressItemId).document(activity.id)
-
-        let batch = db.batch()
-        batch.setData(activity.asFirestoreMap(), forDocument: activityRef)
-
-        for collectionId in collectionIds {
-            let collectionRef = collectionsRef(for: progressItemId).document(collectionId)
-            batch.updateData(
-                [
-                    "activityIds": FieldValue.arrayUnion([activity.id]),
-                    "updatedAt": Timestamp(date: Date())
-                ],
-                forDocument: collectionRef
-            )
-        }
-
         do {
-            try await Self.commitBatch(batch)
+            // The backend persists the activity (forcing `createdBy` to the
+            // caller) and links it into each collection's `activityIds`.
+            try await BackendClient.shared.request(
+                "POST", "/progress/\(progressItemId)/activities", body: activity
+            )
             AppLogger.activity.debug("createActivity succeeded id=\(activity.id)")
         } catch {
             AppLogger.activity.error("createActivity failed progressId=\(progressItemId): \(error)")
@@ -88,13 +72,15 @@ class ActivityService {
 
     // MARK: - Read
 
+    private struct ActivitiesResponse: Decodable { let activities: [Activity] }
+
     func fetchActivities(for progressItemId: String) async throws -> [Activity] {
         AppLogger.activity.debug("fetchActivities progressId=\(progressItemId)")
         do {
-            let snapshot = try await activitiesRef(for: progressItemId)
-                .order(by: "createdAt", descending: true)
-                .getDocuments()
-            return snapshot.documents.compactMap { Activity(document: $0) }
+            let response: ActivitiesResponse = try await BackendClient.shared.send(
+                "GET", "/progress/\(progressItemId)/activities"
+            )
+            return response.activities
         } catch {
             AppLogger.activity.error("fetchActivities failed progressId=\(progressItemId): \(error)")
             throw error
@@ -104,10 +90,9 @@ class ActivityService {
     func fetchActivity(id: String, for progressItemId: String) async throws -> Activity? {
         AppLogger.activity.debug("fetchActivity id=\(id) progressId=\(progressItemId)")
         do {
-            let doc = try await activitiesRef(for: progressItemId)
-                .document(id)
-                .getDocument()
-            return Activity(document: doc)
+            return try await BackendClient.shared.send(
+                "GET", "/progress/\(progressItemId)/activities/\(id)"
+            )
         } catch {
             AppLogger.activity.error("fetchActivity failed id=\(id): \(error)")
             throw error
@@ -118,11 +103,10 @@ class ActivityService {
     func fetchActivitiesWithTime(for progressItemId: String) async throws -> [Activity] {
         AppLogger.activity.debug("fetchActivitiesWithTime progressId=\(progressItemId)")
         do {
-            let snapshot = try await activitiesRef(for: progressItemId)
-                .whereField("timestamp", isGreaterThan: Timestamp(date: .distantPast))
-                .order(by: "timestamp", descending: false)
-                .getDocuments()
-            return snapshot.documents.compactMap { Activity(document: $0) }
+            let response: ActivitiesResponse = try await BackendClient.shared.send(
+                "GET", "/progress/\(progressItemId)/activities?withTime=1"
+            )
+            return response.activities
         } catch {
             AppLogger.activity.error("fetchActivitiesWithTime failed progressId=\(progressItemId): \(error)")
             throw error
@@ -158,6 +142,7 @@ class ActivityService {
         longitude: Double?? = nil,
         locationName: String?? = nil,
         isCompleted: Bool?? = nil,
+        reminderMinutesBefore: Int?? = nil,
         collectionIds: [String]? = nil
     ) async throws {
         var updated = activity
@@ -172,48 +157,22 @@ class ActivityService {
         if let longitude { updated.longitude = longitude }
         if let locationName { updated.locationName = locationName }
         if let isCompleted { updated.isCompleted = isCompleted }
+        if let reminderMinutesBefore { updated.reminderMinutesBefore = reminderMinutesBefore }
 
-        // Reconcile collection membership if the caller passed a new list.
-        let oldCollectionIds = Set(activity.collectionIds)
-        let newCollectionIds = collectionIds.map { Set($0) }
-        if let newCollectionIds {
-            updated.collectionIds = Array(newCollectionIds)
+        // Apply a new collection membership set if the caller passed one; the
+        // backend reconciles the collection back-references against the stored
+        // old set.
+        if let collectionIds {
+            updated.collectionIds = Array(Set(collectionIds))
         }
 
         AppLogger.activity.debug("updateActivity id=\(activity.id) progressId=\(progressItemId)")
-        let activityRef = activitiesRef(for: progressItemId).document(activity.id)
-        let batch = db.batch()
-        batch.setData(updated.asFirestoreMap(), forDocument: activityRef)
-
-        if let newCollectionIds {
-            let now = Timestamp(date: Date())
-            let added = newCollectionIds.subtracting(oldCollectionIds)
-            let removed = oldCollectionIds.subtracting(newCollectionIds)
-
-            for collectionId in added {
-                let ref = collectionsRef(for: progressItemId).document(collectionId)
-                batch.updateData(
-                    [
-                        "activityIds": FieldValue.arrayUnion([activity.id]),
-                        "updatedAt": now
-                    ],
-                    forDocument: ref
-                )
-            }
-            for collectionId in removed {
-                let ref = collectionsRef(for: progressItemId).document(collectionId)
-                batch.updateData(
-                    [
-                        "activityIds": FieldValue.arrayRemove([activity.id]),
-                        "updatedAt": now
-                    ],
-                    forDocument: ref
-                )
-            }
-        }
-
         do {
-            try await Self.commitBatch(batch)
+            // Send the fully-resolved activity; the backend replaces the doc and
+            // reconciles collection back-references against the stored old set.
+            try await BackendClient.shared.request(
+                "PATCH", "/progress/\(progressItemId)/activities/\(activity.id)", body: updated
+            )
             AppLogger.activity.debug("updateActivity succeeded id=\(activity.id)")
         } catch {
             AppLogger.activity.error("updateActivity failed id=\(activity.id): \(error)")
@@ -230,7 +189,9 @@ class ActivityService {
     func deleteActivity(_ activity: Activity, progressItemId: String) async throws {
         AppLogger.activity.debug("deleteActivity id=\(activity.id) progressId=\(progressItemId)")
         do {
-            try await activitiesRef(for: progressItemId).document(activity.id).delete()
+            try await BackendClient.shared.request(
+                "DELETE", "/progress/\(progressItemId)/activities/\(activity.id)"
+            )
             AppLogger.activity.debug("deleteActivity succeeded id=\(activity.id)")
         } catch {
             AppLogger.activity.error("deleteActivity failed id=\(activity.id): \(error)")
@@ -246,24 +207,11 @@ class ActivityService {
         progressItemId: String
     ) async throws {
         AppLogger.activity.debug("addActivity activityId=\(activityId) toCollection=\(collectionId) progressId=\(progressItemId)")
-        let now = Timestamp(date: Date())
-        let batch = db.batch()
-        batch.updateData(
-            [
-                "collectionIds": FieldValue.arrayUnion([collectionId]),
-                "updatedAt": now
-            ],
-            forDocument: activitiesRef(for: progressItemId).document(activityId)
-        )
-        batch.updateData(
-            [
-                "activityIds": FieldValue.arrayUnion([activityId]),
-                "updatedAt": now
-            ],
-            forDocument: collectionsRef(for: progressItemId).document(collectionId)
-        )
         do {
-            try await Self.commitBatch(batch)
+            try await BackendClient.shared.request(
+                "POST",
+                "/progress/\(progressItemId)/activities/\(activityId)/collections/\(collectionId)"
+            )
             AppLogger.activity.debug("addActivity succeeded activityId=\(activityId) collectionId=\(collectionId)")
         } catch {
             AppLogger.activity.error("addActivity failed activityId=\(activityId) collectionId=\(collectionId): \(error)")
@@ -277,24 +225,11 @@ class ActivityService {
         progressItemId: String
     ) async throws {
         AppLogger.activity.debug("removeActivity activityId=\(activityId) fromCollection=\(collectionId) progressId=\(progressItemId)")
-        let now = Timestamp(date: Date())
-        let batch = db.batch()
-        batch.updateData(
-            [
-                "collectionIds": FieldValue.arrayRemove([collectionId]),
-                "updatedAt": now
-            ],
-            forDocument: activitiesRef(for: progressItemId).document(activityId)
-        )
-        batch.updateData(
-            [
-                "activityIds": FieldValue.arrayRemove([activityId]),
-                "updatedAt": now
-            ],
-            forDocument: collectionsRef(for: progressItemId).document(collectionId)
-        )
         do {
-            try await Self.commitBatch(batch)
+            try await BackendClient.shared.request(
+                "DELETE",
+                "/progress/\(progressItemId)/activities/\(activityId)/collections/\(collectionId)"
+            )
             AppLogger.activity.debug("removeActivity succeeded activityId=\(activityId) collectionId=\(collectionId)")
         } catch {
             AppLogger.activity.error("removeActivity failed activityId=\(activityId) collectionId=\(collectionId): \(error)")
@@ -327,19 +262,6 @@ class ActivityService {
         }
     }
 
-    // MARK: - Batch helper
-
-    nonisolated private static func commitBatch(_ batch: WriteBatch) async throws {
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-            batch.commit { error in
-                if let error {
-                    continuation.resume(throwing: error)
-                } else {
-                    continuation.resume(returning: ())
-                }
-            }
-        }
-    }
 }
 
 let activityService = ActivityService()

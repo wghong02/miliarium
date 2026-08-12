@@ -26,6 +26,8 @@ private final class ListenerManager {
 @Observable
 @MainActor
 final class InvitationViewModel {
+    /// Invitations shown to the UI: received invitations with any from a
+    /// blocked sender filtered out (Guideline 1.2).
     private(set) var invitations: [Invitation] = []
     private(set) var isLoading = false
     private(set) var errorMessage: String?
@@ -34,14 +36,26 @@ final class InvitationViewModel {
     /// Used by views to render "name or email" without per-row queries.
     private(set) var userCache: [String: AppUser] = [:]
 
+    /// Set of user IDs this user has blocked. Kept live so newly-blocked
+    /// senders disappear from the list immediately.
+    private(set) var blockedUserIds: Set<String> = []
+
+    /// Unfiltered received invitations; `invitations` is derived from this by
+    /// removing blocked senders.
+    private var allReceived: [Invitation] = []
+
     private var userId: String?
     private let listenerManager = ListenerManager()
+    private let blockedListenerManager = ListenerManager()
 
     @MainActor
     func setUserId(_ id: String?) {
         listenerManager.removeListener()
+        blockedListenerManager.removeListener()
         userId = id
         invitations = []
+        allReceived = []
+        blockedUserIds = []
         userCache = [:]
         errorMessage = nil
 
@@ -59,7 +73,8 @@ final class InvitationViewModel {
         let listener = invitationService.setReceivedInvitationsListener(for: id) { [weak self] invitations in
             Task { @MainActor [weak self] in
                 guard let self else { return }
-                self.invitations = invitations
+                self.allReceived = invitations
+                self.applyBlockFilter()
                 self.errorMessage = nil
                 self.isLoading = false
                 // Resolve sender profiles for display.
@@ -67,16 +82,66 @@ final class InvitationViewModel {
             }
         }
         listenerManager.setListener(listener)
+
+        // Keep the blocked-user set live so filtering reacts immediately.
+        let blockedListener = moderationService.setBlockedUsersListener(for: id) { [weak self] ids in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.blockedUserIds = Set(ids)
+                self.applyBlockFilter()
+            }
+        }
+        blockedListenerManager.setListener(blockedListener)
     }
 
-    func acceptInvitation(_ invitation: Invitation) async {
+    private func applyBlockFilter() {
+        invitations = allReceived.filter { !blockedUserIds.contains($0.fromUserId) }
+    }
+
+    // MARK: - Moderation (Guideline 1.2)
+
+    /// Reports the sender of an invitation for objectionable content/abuse.
+    func reportSender(of invitation: Invitation) async {
+        guard let userId else { return }
+        do {
+            try await moderationService.reportContent(
+                reporterId: userId,
+                reportedUserId: invitation.fromUserId,
+                context: "invitation:\(invitation.id)"
+            )
+            errorMessage = nil
+        } catch {
+            AppLogger.invitationVM.error("reportSender failed id=\(invitation.id): \(error)")
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    /// Blocks the sender of an invitation; they immediately disappear from the
+    /// list and can't be seen again until unblocked (from Profile).
+    func blockSender(of invitation: Invitation) async {
+        guard let userId else { return }
+        do {
+            try await moderationService.blockUser(invitation.fromUserId, by: userId)
+            errorMessage = nil
+        } catch {
+            AppLogger.invitationVM.error("blockSender failed id=\(invitation.id): \(error)")
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    /// Returns `true` when the invitation was accepted; `false` (with
+    /// `errorMessage` set) when it failed — e.g. the progress is already full.
+    @discardableResult
+    func acceptInvitation(_ invitation: Invitation) async -> Bool {
         AppLogger.invitationVM.debug("acceptInvitation id=\(invitation.id)")
         do {
             try await invitationService.acceptInvitation(invitation.id)
             errorMessage = nil
+            return true
         } catch {
             AppLogger.invitationVM.error("acceptInvitation failed id=\(invitation.id): \(error)")
             errorMessage = error.localizedDescription
+            return false
         }
     }
 
@@ -96,9 +161,10 @@ final class InvitationViewModel {
         guard let userId else { return }
         AppLogger.invitationVM.debug("refreshInvitations userId=\(userId)")
         do {
-            invitations = try await invitationService.fetchReceivedInvitations(for: userId)
+            allReceived = try await invitationService.fetchReceivedInvitations(for: userId)
+            applyBlockFilter()
             errorMessage = nil
-            await cacheUsers(forIds: invitations.map { $0.fromUserId })
+            await cacheUsers(forIds: allReceived.map { $0.fromUserId })
         } catch {
             AppLogger.invitationVM.error("refreshInvitations failed userId=\(userId): \(error)")
             errorMessage = error.localizedDescription

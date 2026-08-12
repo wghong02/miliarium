@@ -1,7 +1,6 @@
 import Foundation
 import UIKit
 import UserNotifications
-import FirebaseFirestore
 import FirebaseMessaging
 internal import os
 
@@ -32,8 +31,6 @@ internal import os
 ///       createdAt (server, first write only), lastSeenAt (every sync)
 @MainActor
 final class NotificationService {
-    private let db = Firestore.firestore()
-
     /// Most recent FCM registration token. `nil` before FCM has delivered
     /// one (typical at first launch before APNS exchange completes).
     private(set) var currentToken: String?
@@ -98,67 +95,195 @@ final class NotificationService {
         }
     }
 
-    // MARK: - Firestore upsert / delete
+    // MARK: - Token sync (via backend)
 
-    /// Upserts `currentToken` to `users/{userId}/deviceTokens/{token}`.
-    /// Safe to call repeatedly — `createdAt` is preserved across re-syncs
-    /// because we only include it on the first write.
+    /// Upserts `currentToken` through the backend (`PUT /me/device-tokens`).
+    /// The server preserves `createdAt` and stamps `lastSeenAt`. `userId` is
+    /// implied by the auth token and kept only for call-site compatibility.
     func syncTokenToFirestore(userId: String) async {
         guard let token = currentToken else {
             AppLogger.notification.debug("syncTokenToFirestore skipped: no cached token yet")
             return
         }
-        let docRef = tokenDocRef(userId: userId, token: token)
+        struct Body: Encodable {
+            let token: String
+            let appVersion: String
+            let osVersion: String
+        }
         do {
-            // Read first so we can preserve `createdAt` on subsequent writes.
-            let snapshot = try await docRef.getDocument()
-            var data: [String: Any] = [
-                "token": token,
-                "userId": userId,
-                "platform": "ios",
-                "appVersion": Self.appVersion,
-                "osVersion": UIDevice.current.systemVersion,
-                "lastSeenAt": Timestamp(date: Date()),
-            ]
-            if !snapshot.exists {
-                data["createdAt"] = FieldValue.serverTimestamp()
-            }
-            try await docRef.setData(data, merge: true)
-            AppLogger.notification.debug("syncTokenToFirestore succeeded userId=\(userId) tokenPrefix=\(token.prefix(8))")
+            try await BackendClient.shared.request(
+                "PUT", "/me/device-tokens",
+                body: Body(
+                    token: token,
+                    appVersion: Self.appVersion,
+                    osVersion: UIDevice.current.systemVersion
+                )
+            )
+            AppLogger.notification.debug("syncToken succeeded tokenPrefix=\(token.prefix(8))")
         } catch {
-            AppLogger.notification.error("syncTokenToFirestore failed userId=\(userId): \(error.localizedDescription)")
+            AppLogger.notification.error("syncToken failed: \(error.localizedDescription)")
         }
     }
 
-    /// Removes this device's token doc from the given user. Call on
-    /// sign-out so the previous user no longer receives pushes meant for
-    /// them from this device. The local `currentToken` is preserved so
-    /// the next sign-in can re-attach it without waiting for FCM again.
+    /// Removes this device's token via the backend. Call on sign-out so the
+    /// previous user no longer receives pushes from this device. `currentToken`
+    /// is preserved so the next sign-in can re-attach it.
     func removeTokenFromFirestore(userId: String) async {
         guard let token = currentToken else {
-            AppLogger.notification.debug("removeTokenFromFirestore skipped: no cached token")
+            AppLogger.notification.debug("removeToken skipped: no cached token")
             return
         }
         await removeTokenFromFirestore(userId: userId, token: token)
     }
 
-    /// Explicit-token variant used during FCM rotation to clean up the
-    /// previous (now-dead) token doc without disturbing `currentToken`.
+    /// Explicit-token variant used during FCM rotation to clean up the previous
+    /// (now-dead) token without disturbing `currentToken`.
     func removeTokenFromFirestore(userId: String, token: String) async {
+        struct Body: Encodable { let token: String }
         do {
-            try await tokenDocRef(userId: userId, token: token).delete()
-            AppLogger.notification.debug("removeTokenFromFirestore succeeded userId=\(userId) tokenPrefix=\(token.prefix(8))")
+            try await BackendClient.shared.request(
+                "POST", "/me/device-tokens/remove", body: Body(token: token)
+            )
+            AppLogger.notification.debug("removeToken succeeded tokenPrefix=\(token.prefix(8))")
         } catch {
-            AppLogger.notification.error("removeTokenFromFirestore failed userId=\(userId): \(error.localizedDescription)")
+            AppLogger.notification.error("removeToken failed: \(error.localizedDescription)")
+        }
+    }
+
+    /// The current notification authorization status (for in-app nudges).
+    func authorizationStatus() async -> UNAuthorizationStatus {
+        await UNUserNotificationCenter.current().notificationSettings().authorizationStatus
+    }
+
+    // MARK: - Activity reminders (local notifications)
+
+    private func reminderId(_ activityId: String) -> String {
+        "activity-reminder-\(activityId)"
+    }
+
+    /// Cancels then (re)schedules a local reminder for an activity. A no-op /
+    /// cancel when there's no reminder set or the fire time is already past.
+    /// Called after an activity is created or edited.
+    func syncReminder(
+        activityId: String,
+        title: String,
+        timestamp: Date?,
+        reminderMinutesBefore: Int?
+    ) async {
+        cancelReminder(activityId: activityId)
+        guard let minutes = reminderMinutesBefore, let start = timestamp else { return }
+        let fireDate = start.addingTimeInterval(-Double(minutes) * 60)
+        guard fireDate > Date() else { return }
+
+        let content = UNMutableNotificationContent()
+        let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        content.title = trimmed.isEmpty ? "Upcoming activity" : trimmed
+        content.body = Self.reminderBody(minutesBefore: minutes)
+        content.sound = .default
+
+        let comps = Foundation.Calendar.current.dateComponents(
+            [.year, .month, .day, .hour, .minute], from: fireDate
+        )
+        let trigger = UNCalendarNotificationTrigger(dateMatching: comps, repeats: false)
+        let request = UNNotificationRequest(
+            identifier: reminderId(activityId), content: content, trigger: trigger
+        )
+        do {
+            try await UNUserNotificationCenter.current().add(request)
+            AppLogger.notification.debug("scheduled reminder activity=\(activityId) fire=\(fireDate)")
+        } catch {
+            AppLogger.notification.error("scheduleReminder failed: \(error.localizedDescription)")
+        }
+    }
+
+    /// Removes any pending reminder for the given activity (on delete).
+    func cancelReminder(activityId: String) {
+        UNUserNotificationCenter.current()
+            .removePendingNotificationRequests(withIdentifiers: [reminderId(activityId)])
+    }
+
+    /// Rebuilds all scheduled activity reminders from the user's upcoming
+    /// activities — so reminders survive reinstalls and edits made on other
+    /// devices. Only the nearest ~60 are scheduled, to stay under iOS's 64
+    /// pending-notification cap (leaving room for the weekly recap). Call once
+    /// after the user's progresses have loaded.
+    func reconcileActivityReminders(progresses: [ProgressItem]) async {
+        var upcoming: [Activity] = []
+        await withTaskGroup(of: [Activity].self) { group in
+            for progress in progresses {
+                let pid = progress.id
+                group.addTask {
+                    let acts = (try? await activityService.fetchActivities(for: pid)) ?? []
+                    let now = Date()
+                    return acts.filter { a in
+                        guard let m = a.reminderMinutesBefore, let start = a.timestamp else { return false }
+                        return start.addingTimeInterval(-Double(m) * 60) > now
+                    }
+                }
+            }
+            for await sub in group { upcoming.append(contentsOf: sub) }
+        }
+
+        func fireDate(_ a: Activity) -> Date {
+            a.timestamp!.addingTimeInterval(-Double(a.reminderMinutesBefore!) * 60)
+        }
+        let nearest = upcoming.sorted { fireDate($0) < fireDate($1) }.prefix(60)
+
+        // Clear existing activity reminders, then reschedule the nearest set.
+        let center = UNUserNotificationCenter.current()
+        let stale = (await center.pendingNotificationRequests())
+            .map(\.identifier)
+            .filter { $0.hasPrefix("activity-reminder-") }
+        center.removePendingNotificationRequests(withIdentifiers: stale)
+
+        for activity in nearest {
+            await syncReminder(
+                activityId: activity.id,
+                title: activity.title,
+                timestamp: activity.timestamp,
+                reminderMinutesBefore: activity.reminderMinutesBefore
+            )
+        }
+        AppLogger.notification.debug("reconciled \(nearest.count) activity reminders")
+    }
+
+    /// (Re)schedules the repeating weekly "Memories" recap notification, or
+    /// cancels it when disabled. Call on launch and whenever the schedule
+    /// changes.
+    func scheduleWeeklyRecap(enabled: Bool, components: DateComponents) async {
+        let id = "weekly-recap"
+        let center = UNUserNotificationCenter.current()
+        center.removePendingNotificationRequests(withIdentifiers: [id])
+        guard enabled else { return }
+
+        let content = UNMutableNotificationContent()
+        content.title = "Your week in review"
+        content.body = "See what you got up to this past week."
+        content.sound = .default
+        content.userInfo = ["type": "weekly_recap"]
+
+        let trigger = UNCalendarNotificationTrigger(dateMatching: components, repeats: true)
+        let request = UNNotificationRequest(identifier: id, content: content, trigger: trigger)
+        do {
+            try await center.add(request)
+            AppLogger.notification.debug("scheduled weekly recap \(components.weekday ?? -1) \(components.hour ?? -1):\(components.minute ?? -1)")
+        } catch {
+            AppLogger.notification.error("scheduleWeeklyRecap failed: \(error.localizedDescription)")
+        }
+    }
+
+    private static func reminderBody(minutesBefore: Int) -> String {
+        switch minutesBefore {
+        case 0: return "Starting now."
+        case 1..<60: return "Starts in \(minutesBefore) minutes."
+        case 60: return "Starts in 1 hour."
+        case 61..<1440: return "Starts in \(minutesBefore / 60) hours."
+        case 1440: return "Starts in 1 day."
+        default: return "Starts in \(minutesBefore / 1440) days."
         }
     }
 
     // MARK: - Helpers
-
-    private func tokenDocRef(userId: String, token: String) -> DocumentReference {
-        db.collection("users").document(userId)
-            .collection("deviceTokens").document(token)
-    }
 
     private static var appVersion: String {
         Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "unknown"

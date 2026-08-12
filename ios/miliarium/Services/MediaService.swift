@@ -22,6 +22,10 @@ final class MediaService {
     private let db = Firestore.firestore()
     private let storage = Storage.storage()
 
+    /// Per-file upload cap. Enforced here for fast feedback and, authoritatively,
+    /// by the backend on commit (which reads the stored object's real size).
+    static let maxUploadBytes: Int64 = 20 * 1024 * 1024 // 20 MB
+
     // MARK: - References
 
     private func mediaCollection(
@@ -35,151 +39,170 @@ final class MediaService {
             .collection("media")
     }
 
-    private func storagePath(
-        progressItemId: String,
-        activityId: String,
-        mediaId: String,
-        fileExtension: String
-    ) -> String {
-        "activities/\(progressItemId)/\(activityId)/\(mediaId).\(fileExtension)"
+    // MARK: - Backend upload helpers
+
+    private struct UploadTicket: Decodable {
+        let mediaId: String
+        let storagePath: String
+        let uploadURL: String
+        let thumbnailStoragePath: String
+        let thumbnailUploadURL: String
     }
 
-    // MARK: - Upload
+    /// Asks the backend for signed PUT URLs (full-size + JPEG thumbnail).
+    private func requestUploadTicket(
+        progressItemId: String,
+        activityId: String,
+        contentType: String,
+        ext: String
+    ) async throws -> UploadTicket {
+        struct Body: Encodable { let contentType: String; let ext: String }
+        return try await BackendClient.shared.send(
+            "POST",
+            "/progress/\(progressItemId)/activities/\(activityId)/media/upload-url",
+            body: Body(contentType: contentType, ext: ext)
+        )
+    }
 
-    /// Uploads an image to Storage and writes a metadata doc to Firestore.
-    /// The image is JPEG-compressed to ~85% quality to keep file sizes
-    /// reasonable. Returns the created `ActivityMedia`.
-    func uploadImage(
-        _ image: UIImage,
+    /// Downscales an image so its longest edge is at most `maxDimension` pixels.
+    /// Returns the original when it's already small enough.
+    private static func downscaled(_ image: UIImage, maxDimension: CGFloat) -> UIImage {
+        let longest = max(image.size.width, image.size.height) * image.scale
+        guard longest > maxDimension else { return image }
+        let factor = maxDimension / longest
+        let newSize = CGSize(
+            width: (image.size.width * image.scale * factor).rounded(),
+            height: (image.size.height * image.scale * factor).rounded()
+        )
+        let format = UIGraphicsImageRendererFormat.default()
+        format.scale = 1
+        let renderer = UIGraphicsImageRenderer(size: newSize, format: format)
+        return renderer.image { _ in image.draw(in: CGRect(origin: .zero, size: newSize)) }
+    }
+
+    /// A small JPEG thumbnail image (≤400px) for the grid.
+    private static func thumbnailImage(from image: UIImage) -> UIImage {
+        downscaled(image, maxDimension: 400)
+    }
+
+    private static func videoThumbnail(_ asset: AVURLAsset) -> UIImage? {
+        let generator = AVAssetImageGenerator(asset: asset)
+        generator.appliesPreferredTrackTransform = true
+        generator.maximumSize = CGSize(width: 400, height: 400)
+        let time = CMTime(seconds: 0.1, preferredTimescale: 600)
+        guard let cg = try? generator.copyCGImage(at: time, actualTime: nil) else { return nil }
+        return UIImage(cgImage: cg)
+    }
+
+    private var uploadsTempDir: URL {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("uploads", isDirectory: true)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir
+    }
+
+    // MARK: - Upload (background session)
+
+    /// Prepares a picked photo or video and hands the byte transfer to the
+    /// background upload session (so it survives app suspension). A JPEG
+    /// thumbnail is uploaded alongside. The item appears in the grid once its
+    /// bytes upload and the doc commits; in the meantime it's tracked live in
+    /// `uploadCenter`. Pass exactly one of `image` / `videoFileURL`.
+    func enqueueUpload(
+        image: UIImage? = nil,
+        videoFileURL: URL? = nil,
         progressItemId: String,
         activityId: String,
         uploadedBy: String
-    ) async throws -> ActivityMedia {
-        guard let data = image.jpegData(compressionQuality: 0.85) else {
-            throw MediaServiceError.imageEncodingFailed
-        }
-        let mediaId = UUID().uuidString
-        let path = storagePath(
-            progressItemId: progressItemId,
-            activityId: activityId,
-            mediaId: mediaId,
-            fileExtension: "jpg"
-        )
+    ) async throws {
+        let workId = UUID().uuidString
+        let tempDir = uploadsTempDir
 
-        AppLogger.media.debug("uploadImage start path=\(path) bytes=\(data.count)")
+        let mainContentType: String
+        let ext: String
+        let type: String
+        var width: Int?
+        var height: Int?
+        var durationSeconds: Double?
+        let mainFile: URL
+        var preview: UIImage?
 
-        let metadata = StorageMetadata()
-        metadata.contentType = "image/jpeg"
-        metadata.customMetadata = ["uploadedBy": uploadedBy]
-
-        let ref = storage.reference(withPath: path)
-        _ = try await ref.putDataAsync(data, metadata: metadata)
-
-        let media = ActivityMedia(
-            id: mediaId,
-            type: .image,
-            storagePath: path,
-            uploadedBy: uploadedBy,
-            sizeBytes: Int64(data.count),
-            width: Int(image.size.width * image.scale),
-            height: Int(image.size.height * image.scale)
-        )
-
-        try await mediaCollection(
-            progressItemId: progressItemId,
-            activityId: activityId
-        )
-        .document(mediaId)
-        .setData(media.asFirestoreMap())
-
-        AppLogger.media.debug("uploadImage succeeded path=\(path)")
-        return media
-    }
-
-    /// Uploads a video file (already on disk) to Storage and writes the
-    /// matching Firestore doc. Pass the on-disk URL of the video — usually
-    /// what `PhotosPickerItem.loadTransferable(type: Movie.self)` returns.
-    func uploadVideo(
-        fileURL: URL,
-        progressItemId: String,
-        activityId: String,
-        uploadedBy: String
-    ) async throws -> ActivityMedia {
-        let mediaId = UUID().uuidString
-        let ext = fileURL.pathExtension.isEmpty ? "mov" : fileURL.pathExtension.lowercased()
-        let path = storagePath(
-            progressItemId: progressItemId,
-            activityId: activityId,
-            mediaId: mediaId,
-            fileExtension: ext
-        )
-
-        let attributes = try? FileManager.default.attributesOfItem(atPath: fileURL.path)
-        let sizeBytes = (attributes?[.size] as? NSNumber)?.int64Value
-
-        AppLogger.media.debug("uploadVideo start path=\(path) bytes=\(sizeBytes ?? -1)")
-
-        // Probe duration + dimensions so the UI can render a sensibly-sized
-        // thumbnail without downloading the full file.
-        let asset = AVURLAsset(url: fileURL)
-        let duration: Double? = await {
-            do { return try await asset.load(.duration).seconds }
-            catch { return nil }
-        }()
-        let (videoWidth, videoHeight): (Int?, Int?) = await {
-            do {
-                let tracks = try await asset.loadTracks(withMediaType: .video)
-                guard let track = tracks.first else { return (nil, nil) }
-                let size = try await track.load(.naturalSize)
-                return (Int(abs(size.width)), Int(abs(size.height)))
-            } catch {
-                return (nil, nil)
+        if let image {
+            let scaled = Self.downscaled(image, maxDimension: 2048)
+            guard let data = scaled.jpegData(compressionQuality: 0.85) else {
+                throw MediaServiceError.imageEncodingFailed
             }
-        }()
+            guard Int64(data.count) <= Self.maxUploadBytes else { throw MediaServiceError.tooLarge }
+            mainContentType = "image/jpeg"; ext = "jpg"; type = "image"
+            width = Int(scaled.size.width * scaled.scale)
+            height = Int(scaled.size.height * scaled.scale)
+            mainFile = tempDir.appendingPathComponent("\(workId).jpg")
+            try data.write(to: mainFile)
+            preview = Self.thumbnailImage(from: scaled)
+        } else if let videoFileURL {
+            ext = videoFileURL.pathExtension.isEmpty ? "mov" : videoFileURL.pathExtension.lowercased()
+            let attrs = try? FileManager.default.attributesOfItem(atPath: videoFileURL.path)
+            if let size = (attrs?[.size] as? NSNumber)?.int64Value, size > Self.maxUploadBytes {
+                throw MediaServiceError.tooLarge
+            }
+            let asset = AVURLAsset(url: videoFileURL)
+            durationSeconds = try? await asset.load(.duration).seconds
+            if let track = try? await asset.loadTracks(withMediaType: .video).first,
+               let size = try? await track.load(.naturalSize) {
+                width = Int(abs(size.width)); height = Int(abs(size.height))
+            }
+            mainContentType = contentType(forVideoExtension: ext); type = "video"
+            mainFile = tempDir.appendingPathComponent("\(workId).\(ext)")
+            try? FileManager.default.removeItem(at: mainFile)
+            try FileManager.default.copyItem(at: videoFileURL, to: mainFile)
+            preview = Self.videoThumbnail(asset)
+        } else {
+            throw MediaServiceError.uploadFailed
+        }
 
-        let metadata = StorageMetadata()
-        metadata.contentType = contentType(forVideoExtension: ext)
-        metadata.customMetadata = ["uploadedBy": uploadedBy]
-
-        let ref = storage.reference(withPath: path)
-        _ = try await ref.putFileAsync(from: fileURL, metadata: metadata)
-
-        let media = ActivityMedia(
-            id: mediaId,
-            type: .video,
-            storagePath: path,
-            uploadedBy: uploadedBy,
-            sizeBytes: sizeBytes,
-            width: videoWidth,
-            height: videoHeight,
-            durationSeconds: duration
+        let ticket = try await requestUploadTicket(
+            progressItemId: progressItemId, activityId: activityId,
+            contentType: mainContentType, ext: ext
         )
 
-        try await mediaCollection(
-            progressItemId: progressItemId,
-            activityId: activityId
-        )
-        .document(mediaId)
-        .setData(media.asFirestoreMap())
+        var thumbFile: URL?
+        if let preview, let thumbData = preview.jpegData(compressionQuality: 0.7) {
+            let url = tempDir.appendingPathComponent("\(workId)_thumb.jpg")
+            try? thumbData.write(to: url)
+            thumbFile = url
+        }
 
-        AppLogger.media.debug("uploadVideo succeeded path=\(path)")
-        return media
+        let info = UploadTaskInfo(
+            kind: .main, mediaId: ticket.mediaId,
+            progressItemId: progressItemId, activityId: activityId,
+            storagePath: ticket.storagePath, thumbnailStoragePath: ticket.thumbnailStoragePath,
+            type: type, width: width, height: height, durationSeconds: durationSeconds,
+            tempFilePath: mainFile.path
+        )
+        await MediaCommitStore.shared.register(info)
+        let previewForCenter = preview
+        await MainActor.run {
+            uploadCenter.add(mediaId: ticket.mediaId, activityId: activityId, preview: previewForCenter)
+        }
+        BackgroundUploadManager.shared.enqueue(
+            mainURLString: ticket.uploadURL, mainFile: mainFile, mainContentType: mainContentType,
+            thumbnailURLString: ticket.thumbnailUploadURL, thumbnailFile: thumbFile, info: info
+        )
+        AppLogger.media.debug("enqueued upload media=\(ticket.mediaId) type=\(type)")
     }
 
     // MARK: - Read
 
-    /// Fetches all media for an activity, newest first.
+    /// Fetches all media for an activity, newest first (via the backend).
     func fetchMedia(
         progressItemId: String,
         activityId: String
     ) async throws -> [ActivityMedia] {
-        let snapshot = try await mediaCollection(
-            progressItemId: progressItemId,
-            activityId: activityId
+        struct Response: Decodable { let media: [ActivityMedia] }
+        let response: Response = try await BackendClient.shared.send(
+            "GET", "/progress/\(progressItemId)/activities/\(activityId)/media"
         )
-        .order(by: "uploadedAt", descending: true)
-        .getDocuments()
-        return snapshot.documents.compactMap { ActivityMedia(document: $0) }
+        return response.media
     }
 
     /// Live listener for the media subcollection.
@@ -221,12 +244,10 @@ final class MediaService {
     ) async throws {
         AppLogger.media.debug("deleteMedia id=\(media.id) path=\(media.storagePath)")
 
-        try await mediaCollection(
-            progressItemId: progressItemId,
-            activityId: activityId
+        try await BackendClient.shared.request(
+            "DELETE",
+            "/progress/\(progressItemId)/activities/\(activityId)/media/\(media.id)"
         )
-        .document(media.id)
-        .delete()
 
         AppLogger.media.debug("deleteMedia succeeded id=\(media.id)")
     }
@@ -245,10 +266,14 @@ final class MediaService {
 
 enum MediaServiceError: LocalizedError {
     case imageEncodingFailed
+    case uploadFailed
+    case tooLarge
 
     var errorDescription: String? {
         switch self {
         case .imageEncodingFailed: return "Could not encode the selected image."
+        case .uploadFailed: return "The upload failed. Please try again."
+        case .tooLarge: return "Each file must be 20 MB or smaller. Please choose a smaller one."
         }
     }
 }

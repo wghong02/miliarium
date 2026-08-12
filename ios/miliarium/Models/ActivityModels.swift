@@ -36,6 +36,10 @@ struct Activity: Identifiable, Hashable, Sendable, Codable {
     /// pending, `true` = completed.
     var isCompleted: Bool?
 
+    /// Minutes before `timestamp` to fire a local reminder notification.
+    /// `nil` = no reminder. Only meaningful when `timestamp` is set.
+    var reminderMinutesBefore: Int?
+
     /// IDs of the ActivityCollections this activity belongs to (many-to-many).
     var collectionIds: [String]
 
@@ -60,6 +64,7 @@ struct Activity: Identifiable, Hashable, Sendable, Codable {
         longitude: Double? = nil,
         locationName: String? = nil,
         isCompleted: Bool? = nil,
+        reminderMinutesBefore: Int? = nil,
         collectionIds: [String] = [],
         createdBy: String? = nil,
         createdAt: Date = Date(),
@@ -75,6 +80,7 @@ struct Activity: Identifiable, Hashable, Sendable, Codable {
         self.longitude = longitude
         self.locationName = locationName
         self.isCompleted = isCompleted
+        self.reminderMinutesBefore = reminderMinutesBefore
         self.collectionIds = collectionIds
         self.createdBy = createdBy
         self.createdAt = createdAt
@@ -104,6 +110,7 @@ struct Activity: Identifiable, Hashable, Sendable, Codable {
             longitude: geoPoint?.longitude,
             locationName: data["locationName"] as? String,
             isCompleted: data["isCompleted"] as? Bool,
+            reminderMinutesBefore: data["reminderMinutesBefore"] as? Int,
             collectionIds: data["collectionIds"] as? [String] ?? [],
             createdBy: data["createdBy"] as? String,
             createdAt: createdAt,
@@ -140,6 +147,9 @@ struct Activity: Identifiable, Hashable, Sendable, Codable {
         }
         if let isCompleted {
             map["isCompleted"] = isCompleted
+        }
+        if let reminderMinutesBefore {
+            map["reminderMinutesBefore"] = reminderMinutesBefore
         }
         if let createdBy, !createdBy.isEmpty {
             map["createdBy"] = createdBy

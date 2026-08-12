@@ -37,9 +37,12 @@ export const onMediaDeleted = onDocumentDeleted(
   "progressItems/{progressItemId}/activities/{activityId}/media/{mediaId}",
   async (event) => {
     const { progressItemId, activityId, mediaId } = event.params;
-    const storagePath = event.data?.data()?.storagePath as string | undefined;
+    const data = event.data?.data();
+    const paths = [data?.storagePath, data?.thumbnailStoragePath].filter(
+      (p): p is string => typeof p === "string" && p.length > 0
+    );
 
-    if (!storagePath) {
+    if (paths.length === 0) {
       logger.info("onMediaDeleted: no storagePath on doc, nothing to delete", {
         progressItemId,
         activityId,
@@ -48,22 +51,22 @@ export const onMediaDeleted = onDocumentDeleted(
       return;
     }
 
-    try {
-      await storage.bucket().file(storagePath).delete();
-      logger.info("onMediaDeleted: removed storage file", { storagePath });
-    } catch (error) {
-      const code = (error as { code?: number }).code;
-      const message = error instanceof Error ? error.message : String(error);
-      if (code === 404 || isBucketMissing(message)) {
-        logger.info("onMediaDeleted: storage object already gone", {
+    for (const storagePath of paths) {
+      try {
+        await storage.bucket().file(storagePath).delete();
+        logger.info("onMediaDeleted: removed storage file", { storagePath });
+      } catch (error) {
+        const code = (error as { code?: number }).code;
+        const message = error instanceof Error ? error.message : String(error);
+        if (code === 404 || isBucketMissing(message)) {
+          logger.info("onMediaDeleted: storage object already gone", { storagePath });
+          continue;
+        }
+        logger.warn("onMediaDeleted: storage delete failed", {
           storagePath,
+          error: message,
         });
-        return;
       }
-      logger.warn("onMediaDeleted: storage delete failed", {
-        storagePath,
-        error: message,
-      });
     }
   }
 );

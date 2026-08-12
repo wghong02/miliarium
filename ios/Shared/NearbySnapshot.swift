@@ -28,6 +28,9 @@ struct NearbySnapshot: Codable, Sendable {
 
     struct Item: Codable, Identifiable, Sendable, Hashable {
         let id: String
+        /// Owning progress id, for deep-linking a widget tap. Optional so older
+        /// cached snapshots still decode.
+        let progressItemId: String?
         let title: String
         let progressTitle: String
         let latitude: Double
@@ -36,5 +39,23 @@ struct NearbySnapshot: Codable, Sendable {
         /// `true` items are excluded by the writer so this is always `nil`
         /// or `false` in practice; the field is preserved for future use.
         let isCompleted: Bool?
+
+        init(
+            id: String,
+            progressItemId: String? = nil,
+            title: String,
+            progressTitle: String,
+            latitude: Double,
+            longitude: Double,
+            isCompleted: Bool?
+        ) {
+            self.id = id
+            self.progressItemId = progressItemId
+            self.title = title
+            self.progressTitle = progressTitle
+            self.latitude = latitude
+            self.longitude = longitude
+            self.isCompleted = isCompleted
+        }
     }
 }

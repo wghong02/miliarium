@@ -1,54 +1,17 @@
 import Foundation
 import OSLog
-import FirebaseFirestore
 
-/// CRUD + bulk fetch for `users/{userId}` documents.
+/// Reads + edits `users/{userId}` profiles, all via the backend API.
 class UserService {
-    private let db = Firestore.firestore()
-
-    private func usersRef() -> CollectionReference {
-        db.collection("users")
-    }
 
     // MARK: - Create / upsert
 
-    /// Idempotent: creates the user doc if missing, otherwise backfills any
-    /// missing fields (`userId`, `email`). Safe to call on every sign-in.
-    func ensureUserExists(userId: String, email: String?) async throws {
-        AppLogger.user.debug("ensureUserExists userId=\(userId)")
-        do {
-            let ref = usersRef().document(userId)
-            let doc = try await ref.getDocument()
-
-            if !doc.exists {
-                AppLogger.user.debug("ensureUserExists: creating new user doc userId=\(userId)")
-                let user = AppUser(id: userId, email: email)
-                try await ref.setData(user.asFirestoreMap())
-                return
-            }
-
-            // Backfill any missing fields without overwriting existing values.
-            let data = doc.data() ?? [:]
-            var updates: [String: Any] = [:]
-
-            if data["userId"] as? String != userId {
-                updates["userId"] = userId
-            }
-            if let email,
-               !email.isEmpty,
-               (data["email"] as? String) != email {
-                updates["email"] = email
-            }
-
-            if !updates.isEmpty {
-                AppLogger.user.debug("ensureUserExists: backfilling fields \(updates.keys.joined(separator: ",")) userId=\(userId)")
-                updates["updatedAt"] = Timestamp(date: Date())
-                try await ref.updateData(updates)
-            }
-        } catch {
-            AppLogger.user.error("ensureUserExists failed userId=\(userId): \(error)")
-            throw error
-        }
+    /// Idempotently ensures the caller's `users/{uid}` profile doc exists, via
+    /// the backend (`POST /me/ensure`). Called on sign-in. Replaces the old
+    /// client-side upsert / auth-creation trigger.
+    func ensureProfile() async throws {
+        AppLogger.user.debug("ensureProfile")
+        try await BackendClient.shared.request("POST", "/me/ensure")
     }
 
     // MARK: - Read
@@ -56,34 +19,26 @@ class UserService {
     func fetchUser(id: String) async throws -> AppUser? {
         AppLogger.user.debug("fetchUser id=\(id)")
         do {
-            let doc = try await usersRef().document(id).getDocument()
-            return AppUser(document: doc)
+            return try await BackendClient.shared.send("GET", "/users/\(id)")
         } catch {
             AppLogger.user.error("fetchUser failed id=\(id): \(error)")
             throw error
         }
     }
 
-    /// Bulk fetch by user IDs. Chunks into 30-item batches to honor
-    /// Firestore's `in` query limit.
+    /// Bulk fetch by user IDs (backend resolves them; no client `users` query).
     func fetchUsers(ids: [String]) async throws -> [AppUser] {
         let uniqueIds = Array(Set(ids))
         guard !uniqueIds.isEmpty else { return [] }
 
         AppLogger.user.debug("fetchUsers count=\(uniqueIds.count)")
+        struct Response: Decodable { let users: [AppUser] }
         do {
-            var results: [AppUser] = []
-            var index = 0
-            while index < uniqueIds.count {
-                let end = min(index + 30, uniqueIds.count)
-                let chunk = Array(uniqueIds[index..<end])
-                let snapshot = try await usersRef()
-                    .whereField(FieldPath.documentID(), in: chunk)
-                    .getDocuments()
-                results.append(contentsOf: snapshot.documents.compactMap { AppUser(document: $0) })
-                index = end
-            }
-            return results
+            let idsParam = uniqueIds.joined(separator: ",")
+            let response: Response = try await BackendClient.shared.send(
+                "GET", "/users?ids=\(idsParam)"
+            )
+            return response.users
         } catch {
             AppLogger.user.error("fetchUsers failed: \(error)")
             throw error
@@ -105,19 +60,16 @@ class UserService {
 
     // MARK: - Update
 
-    /// Sets or clears the user's display name.
+    /// Sets or clears the user's display name via the backend (`PATCH /me`).
+    /// A `nil`/blank name clears it. `userId` is implied by the auth token and
+    /// kept only for call-site compatibility.
     func updateName(userId: String, name: String?) async throws {
         AppLogger.user.debug("updateName userId=\(userId) name=\(name ?? "<cleared>")")
+        struct Body: Encodable { let name: String? }
+        let cleaned = name?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let value = (cleaned?.isEmpty ?? true) ? nil : cleaned
         do {
-            var updates: [String: Any] = [
-                "updatedAt": Timestamp(date: Date())
-            ]
-            if let name, !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                updates["name"] = name
-            } else {
-                updates["name"] = FieldValue.delete()
-            }
-            try await usersRef().document(userId).updateData(updates)
+            try await BackendClient.shared.request("PATCH", "/me", body: Body(name: value))
             AppLogger.user.debug("updateName succeeded userId=\(userId)")
         } catch {
             AppLogger.user.error("updateName failed userId=\(userId): \(error)")
@@ -126,22 +78,11 @@ class UserService {
     }
 
     // MARK: - Delete
-
-    /// Permanently deletes the user's `users/{userId}` profile document.
-    /// Called from the in-app account-deletion flow (App Store Review
-    /// Guideline 5.1.1(v)). Deleting this doc fires the backend `onUserDeleted`
-    /// trigger, which cascades the user's subtree (deviceTokens, progressLinks)
-    /// and every progress they owned. See backend/cascadeDeletes.ts.
-    func deleteUser(userId: String) async throws {
-        AppLogger.user.debug("deleteUser userId=\(userId)")
-        do {
-            try await usersRef().document(userId).delete()
-            AppLogger.user.debug("deleteUser succeeded userId=\(userId)")
-        } catch {
-            AppLogger.user.error("deleteUser failed userId=\(userId): \(error)")
-            throw error
-        }
-    }
+    //
+    // Account deletion is server-side: AuthViewModel.deleteAccount calls
+    // `DELETE /me/account`, which deletes the Auth account (admin) then the
+    // `users/{uid}` doc, firing the `onUserDeleted` cascade. See
+    // backend/api/users.ts and backend/cascadeDeletes.ts.
 }
 
 let userService = UserService()

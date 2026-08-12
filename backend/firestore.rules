@@ -1,0 +1,93 @@
+// =============================================================================
+//  Firestore security rules. Wired into firebase.json; validated by
+//  functions/src/__integration__/rules.integration.test.ts.
+// =============================================================================
+//
+//  All client mutations go through the backend `api` function (which writes with
+//  the Admin SDK and bypasses these rules), so the client model is simple: reads
+//  are gated by owner/collaborator membership, and EVERY client write is denied.
+//  Membership is read from `progressLinks`, which are written only by the backend
+//  — so they're a trustworthy source of truth.
+//
+//  Deploy: `firebase deploy --only firestore:rules` (from backend/).
+// =============================================================================
+
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isSignedIn() { return request.auth != null; }
+    function uid() { return request.auth.uid; }
+
+    function isMember(pid) {
+      let p = get(/databases/$(database)/documents/progressItems/$(pid));
+      return p != null && (
+        p.data.ownerUserId == uid() ||
+        exists(/databases/$(database)/documents/users/$(uid())/progressLinks/$(pid))
+      );
+    }
+
+    // ---- users ------------------------------------------------------------
+    match /users/{userId} {
+      // Single-doc reads by known id (display names); no listing/enumeration.
+      allow get: if isSignedIn();
+      allow list: if false;
+      allow write: if false; // profile created/edited/deleted via backend API
+
+      match /deviceTokens/{token} {
+        allow read: if isSignedIn() && userId == uid();
+        allow write: if false; // backend
+      }
+      match /progressLinks/{pid} {
+        allow read: if isSignedIn() && userId == uid();
+        allow write: if false; // backend (create on progress/accept, delete on cascade)
+      }
+      match /blockedUsers/{blockedId} {
+        allow read: if isSignedIn() && userId == uid();
+        allow write: if false; // backend
+      }
+    }
+
+    // ---- progresses + their subtrees -------------------------------------
+    match /progressItems/{pid} {
+      allow get: if isSignedIn() && isMember(pid);
+      allow list: if false;
+      allow write: if false; // backend
+
+      match /{document=**} {
+        allow read: if isSignedIn() && isMember(pid);
+        allow write: if false; // backend
+      }
+    }
+
+    // ---- invitations ------------------------------------------------------
+    // Readable only by the two participants; LIST queries must be constrained
+    // by `toUserId == me` or `fromUserId == me` (see companion change #3).
+    match /invitations/{invitationId} {
+      allow read: if isSignedIn()
+                  && (resource.data.fromUserId == uid()
+                      || resource.data.toUserId == uid());
+      allow write: if false; // backend
+    }
+
+    // ---- moderation reports ----------------------------------------------
+    match /reports/{reportId} {
+      allow read, write: if false; // backend create only; reviewed out-of-band
+    }
+  }
+}
+
+// -----------------------------------------------------------------------------
+//  Client READ patterns this model must satisfy (writes are all backend now):
+//    users/{uid}                      get (display name resolution)
+//    users/{uid}/deviceTokens         (none — client doesn't read these)
+//    users/{uid}/progressLinks        read self            (ProgressStore listener)
+//    users/{uid}/blockedUsers         read self            (ModerationService listener)
+//    progressItems/{pid}              get member           (ProgressStore.fetchProgressItems)
+//    progressItems/{pid}/activities   read member          (ActivityService)
+//    progressItems/{pid}/collections  read member          (ActivityCollectionService)
+//    .../activities/{aid}/media       read member          (MediaService)
+//    invitations where toUserId==me / fromUserId==me       (InvitationService)
+//    invitations where fromUserId==me AND progressItemId==X (InvitedUsersPanel, after #3)
+// -----------------------------------------------------------------------------

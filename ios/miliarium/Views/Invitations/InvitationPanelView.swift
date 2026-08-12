@@ -71,6 +71,7 @@ struct InvitationItemView: View {
                 }
                 Spacer()
                 statusBadge
+                moderationMenu
             }
 
             if invitation.status == .pending {
@@ -95,6 +96,29 @@ struct InvitationItemView: View {
         .padding(8)
         .background(Color(.systemBackground))
         .cornerRadius(6)
+    }
+
+    /// Report / block affordance (App Store Review Guideline 1.2). Blocking a
+    /// sender hides their invitations immediately; reporting files a report for
+    /// out-of-band review.
+    private var moderationMenu: some View {
+        Menu {
+            Button(role: .destructive) {
+                Task { await invitationVM.reportSender(of: invitation) }
+            } label: {
+                Label("Report", systemImage: "flag")
+            }
+            Button(role: .destructive) {
+                Task { await invitationVM.blockSender(of: invitation) }
+            } label: {
+                Label("Block sender", systemImage: "hand.raised")
+            }
+        } label: {
+            Image(systemName: "ellipsis.circle")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+        .accessibilityLabel("Report or block sender")
     }
 
     @ViewBuilder

@@ -1,5 +1,4 @@
 import SwiftUI
-import FirebaseFirestore
 
 struct SendInvitationSheet: View {
     @Environment(InvitationViewModel.self) private var invitationVM
@@ -89,14 +88,11 @@ struct SendInvitationSheet: View {
 
         Task {
             do {
-                // Look up the recipient by email — the only thing we need
-                // from the user collection is their `userId`. Display
-                // strings are resolved live elsewhere.
-                let recipientUserId = try await lookupUserByEmail(trimmed)
-
+                // The backend resolves the email to a user (admin-side, so the
+                // client never queries `users` by email) and sends the invite.
                 try await invitationService.sendInvitation(
                     from: currentUserId,
-                    to: recipientUserId,
+                    toEmail: trimmed,
                     progressItemId: progressItemId,
                     progressItemTitle: progressItemTitle
                 )
@@ -112,32 +108,19 @@ struct SendInvitationSheet: View {
                     }
                 }
             } catch {
+                // `sendInvitation` reopens any prior row for this recipient
+                // (declined/revoked → pending) and throws a ready-to-show
+                // message only for the already-accepted case, so surface the
+                // error text directly.
                 let errMsg = error.localizedDescription
                 await MainActor.run {
                     isLoading = false
-                    if errMsg.contains("already exists") {
-                        errorMessage = "You already sent an invitation to this user for this progress."
-                    } else {
-                        errorMessage = errMsg
-                    }
+                    errorMessage = errMsg
                 }
             }
         }
     }
 
-    private func lookupUserByEmail(_ email: String) async throws -> String {
-        let db = Firestore.firestore()
-        let snapshot = try await db.collection("users")
-            .whereField("email", isEqualTo: email)
-            .limit(to: 1)
-            .getDocuments()
-
-        guard let document = snapshot.documents.first else {
-            throw NSError(domain: "UserNotFound", code: 404, userInfo: [NSLocalizedDescriptionKey: "User with email \(email) not found"])
-        }
-
-        return document.documentID
-    }
 }
 
 #Preview {

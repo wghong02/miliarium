@@ -25,6 +25,8 @@ final class AuthViewModel {
     private(set) var user: User?
     private(set) var isBusy = false
     private(set) var errorMessage: String?
+    /// Non-error confirmation text (e.g. "reset email sent").
+    private(set) var infoMessage: String?
 
     private let authListener = FirebaseAuthStateListener()
 
@@ -40,18 +42,15 @@ final class AuthViewModel {
         authListener.start { [weak self] user in
             Task { @MainActor [weak self] in
                 self?.user = user
-                // Idempotently materialize the matching `users/{uid}` doc
-                // (with the explicit `userId` field that mirrors the doc id).
                 if let user {
                     AppLogger.auth.debug("authStateChanged: user signed in uid=\(user.uid)")
+                    // Idempotently ensure the backend profile doc exists (the
+                    // backend reads the email from the Auth record). Best-effort;
+                    // don't block sign-in.
                     do {
-                        try await userService.ensureUserExists(
-                            userId: user.uid,
-                            email: user.email
-                        )
+                        try await userService.ensureProfile()
                     } catch {
-                        // Surfaced to the log; don't block sign-in.
-                        AppLogger.auth.error("ensureUserExists failed uid=\(user.uid): \(error)")
+                        AppLogger.auth.error("ensureProfile failed uid=\(user.uid): \(error)")
                     }
                 } else {
                     AppLogger.auth.debug("authStateChanged: user signed out")
@@ -92,19 +91,19 @@ final class AuthViewModel {
     }
 
     /// Permanently deletes the signed-in user's account (App Store Review
-    /// Guideline 5.1.1(v)). `password` re-authenticates the user, because
-    /// `FirebaseAuth`'s `delete()` requires a recent login and the persisted
-    /// session is usually too old to qualify. Deletes the Firestore profile
-    /// doc first — while still authenticated — then the Auth account itself.
+    /// Guideline 5.1.1(v)). `password` re-authenticates the user first — this
+    /// confirms their identity before the destructive call and surfaces a wrong
+    /// password as an error.
     ///
-    /// Deleting the `users/{uid}` doc fires the backend `onUserDeleted`
-    /// trigger, which cascades the rest server-side: the user's subtree
-    /// (deviceTokens, progressLinks, ...) and every progress they owned. See
-    /// backend/cascadeDeletes.ts.
+    /// The actual teardown happens server-side: `DELETE /me/account` deletes the
+    /// Auth account (admin) and then the `users/{uid}` doc, which fires the
+    /// `onUserDeleted` cascade that wipes the rest (the user's subtree —
+    /// deviceTokens, progressLinks, ... — and every progress they owned). See
+    /// backend/api/users.ts and backend/cascadeDeletes.ts. Deleting the Auth
+    /// account first means nothing is destroyed unless the account is actually
+    /// gone. On success we sign out locally so the auth gate returns to login.
     ///
-    /// The auth-state listener flips `user` to `nil` on success, so the auth
-    /// gate returns to the login screen automatically. Returns `true` on
-    /// success; on failure `errorMessage` carries the reason.
+    /// Returns `true` on success; on failure `errorMessage` carries the reason.
     @discardableResult
     func deleteAccount(password: String) async -> Bool {
         guard let currentUser = Auth.auth().currentUser else { return false }
@@ -120,11 +119,11 @@ final class AuthViewModel {
                 )
                 try await currentUser.reauthenticate(with: credential)
             }
-            // Remove the profile doc while we still hold auth (afterwards the
-            // client loses write permission). If the subsequent Auth delete
-            // fails, `ensureUserExists` re-creates the doc on next sign-in.
-            try await userService.deleteUser(userId: uid)
-            try await currentUser.delete()
+            // Backend deletes the Auth account + all data as admin.
+            try await BackendClient.shared.request("DELETE", "/me/account")
+            // The account is gone server-side; clear the local session so the
+            // auth-state listener flips `user` to nil and returns to login.
+            try? Auth.auth().signOut()
             AppLogger.auth.debug("deleteAccount succeeded uid=\(uid)")
             return true
         } catch {
@@ -134,9 +133,31 @@ final class AuthViewModel {
         }
     }
 
+    /// Sends a password-reset email. Surfaces a confirmation in `infoMessage`
+    /// on success (deliberately not revealing whether the address exists).
+    func sendPasswordReset(email: String) async {
+        let trimmed = email.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            errorMessage = "Enter your email first."
+            return
+        }
+        AppLogger.auth.debug("sendPasswordReset email=\(trimmed)")
+        isBusy = true
+        errorMessage = nil
+        infoMessage = nil
+        defer { isBusy = false }
+        do {
+            try await Auth.auth().sendPasswordReset(withEmail: trimmed)
+            infoMessage = "If an account exists for \(trimmed), a reset link is on its way."
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
     private func perform(_ work: @Sendable () async throws -> Void) async {
         isBusy = true
         errorMessage = nil
+        infoMessage = nil
         defer { isBusy = false }
         do {
             try await work()

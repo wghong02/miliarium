@@ -27,6 +27,9 @@ struct ActivityMedia: Identifiable, Hashable, Sendable, Codable {
     /// `activities/{progressItemId}/{activityId}/{mediaId}.jpg`.
     /// Use `Storage.storage().reference(withPath:)` to get a download URL.
     let storagePath: String
+    /// Storage path of the small JPEG thumbnail, when one was uploaded. The
+    /// grid loads this instead of the full asset; `nil` → fall back to `storagePath`.
+    let thumbnailStoragePath: String?
     /// User ID of whoever uploaded it.
     let uploadedBy: String
     let uploadedAt: Date
@@ -42,6 +45,7 @@ struct ActivityMedia: Identifiable, Hashable, Sendable, Codable {
         id: String = UUID().uuidString,
         type: ActivityMediaType,
         storagePath: String,
+        thumbnailStoragePath: String? = nil,
         uploadedBy: String,
         uploadedAt: Date = Date(),
         sizeBytes: Int64? = nil,
@@ -52,6 +56,7 @@ struct ActivityMedia: Identifiable, Hashable, Sendable, Codable {
         self.id = id
         self.type = type
         self.storagePath = storagePath
+        self.thumbnailStoragePath = thumbnailStoragePath
         self.uploadedBy = uploadedBy
         self.uploadedAt = uploadedAt
         self.sizeBytes = sizeBytes
@@ -75,6 +80,7 @@ struct ActivityMedia: Identifiable, Hashable, Sendable, Codable {
             id: document.documentID,
             type: type,
             storagePath: storagePath,
+            thumbnailStoragePath: data["thumbnailStoragePath"] as? String,
             uploadedBy: uploadedBy,
             uploadedAt: uploadedAt,
             sizeBytes: (data["sizeBytes"] as? Int64) ?? (data["sizeBytes"] as? Int).map(Int64.init),
@@ -91,6 +97,7 @@ struct ActivityMedia: Identifiable, Hashable, Sendable, Codable {
             "uploadedBy": uploadedBy,
             "uploadedAt": Timestamp(date: uploadedAt),
         ]
+        if let thumbnailStoragePath { map["thumbnailStoragePath"] = thumbnailStoragePath }
         if let sizeBytes { map["sizeBytes"] = sizeBytes }
         if let width { map["width"] = width }
         if let height { map["height"] = height }

@@ -1,4 +1,5 @@
 import UIKit
+import UserNotifications
 import FirebaseAuth
 import FirebaseMessaging
 internal import os
@@ -13,7 +14,8 @@ internal import os
 /// We store the **FCM** token (not the raw APNS hex) because the Cloud
 /// Functions backend dispatches pushes through Firebase Cloud Messaging,
 /// which requires its own registration tokens.
-final class MiliariumAppDelegate: NSObject, UIApplicationDelegate, MessagingDelegate {
+final class MiliariumAppDelegate: NSObject, UIApplicationDelegate, MessagingDelegate,
+    UNUserNotificationCenterDelegate {
 
     func application(
         _ application: UIApplication,
@@ -23,7 +25,25 @@ final class MiliariumAppDelegate: NSObject, UIApplicationDelegate, MessagingDele
         // `auth` state initializer. Become the FCM delegate so we receive
         // the registration token (and any subsequent rotations).
         Messaging.messaging().delegate = self
+        // Own notification presentation + taps so foreground pushes are shown
+        // and taps deep-link (see the `data` payload set in the backend).
+        UNUserNotificationCenter.current().delegate = self
+        // Bring up the background upload session and commit any media whose bytes
+        // uploaded but whose doc wasn't written yet (e.g. app was killed).
+        BackgroundUploadManager.shared.activate()
+        Task { await MediaCommitStore.shared.reconcile() }
         return true
+    }
+
+    /// Relaunched to finish background uploads. Stash the completion handler and
+    /// make sure the session (delegate) exists to receive the queued events.
+    func application(
+        _ application: UIApplication,
+        handleEventsForBackgroundURLSession identifier: String,
+        completionHandler: @escaping () -> Void
+    ) {
+        BackgroundUploadManager.shared.backgroundCompletionHandler = completionHandler
+        BackgroundUploadManager.shared.activate()
     }
 
     /// Called by iOS after `UIApplication.shared.registerForRemoteNotifications()`
@@ -69,5 +89,33 @@ final class MiliariumAppDelegate: NSObject, UIApplicationDelegate, MessagingDele
                 currentUserId: Auth.auth().currentUser?.uid
             )
         }
+    }
+
+    // MARK: - UNUserNotificationCenterDelegate
+
+    /// Present notifications that arrive while the app is foregrounded — without
+    /// this, iOS suppresses them entirely.
+    func userNotificationCenter(
+        _ center: UNUserNotificationCenter,
+        willPresent notification: UNNotification,
+        withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
+    ) {
+        completionHandler([.banner, .sound, .badge])
+    }
+
+    /// Handle a notification tap: pull the routing primitives off the payload
+    /// (set by the backend's `data` dictionary) and hand them to the router.
+    func userNotificationCenter(
+        _ center: UNUserNotificationCenter,
+        didReceive response: UNNotificationResponse,
+        withCompletionHandler completionHandler: @escaping () -> Void
+    ) {
+        let userInfo = response.notification.request.content.userInfo
+        let type = userInfo["type"] as? String
+        let progressItemId = userInfo["progressItemId"] as? String
+        Task { @MainActor in
+            notificationRouter.handle(type: type, progressItemId: progressItemId)
+        }
+        completionHandler()
     }
 }

@@ -1,0 +1,25 @@
+// =============================================================================
+//  Cloud Storage security rules. Wired into firebase.json.
+// =============================================================================
+//
+//  Clients READ media directly (download URLs) but no longer WRITE via the SDK:
+//  uploads go to a backend-issued V4 signed URL, whose signature authorizes the
+//  write independently of these rules. So we allow authenticated reads and deny
+//  client writes/deletes (the backend owns those). Storage rules can't read
+//  Firestore, so per-progress membership isn't enforceable here; media paths are
+//  unguessable (UUID activity/media ids).
+//
+//  Deploy: `firebase deploy --only storage` (from backend/).
+// =============================================================================
+
+rules_version = '2';
+
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /activities/{progressItemId}/{activityId}/{fileName} {
+      allow read: if request.auth != null;
+      // Uploads use signed URLs (bypass rules); deletes are server-owned.
+      allow write: if false;
+    }
+  }
+}

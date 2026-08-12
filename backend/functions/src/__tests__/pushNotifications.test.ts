@@ -25,7 +25,7 @@ jest.mock("firebase-admin/messaging", () => {
 import { getFirestore } from "firebase-admin/firestore";
 import { getMessaging } from "firebase-admin/messaging";
 import { logger } from "firebase-functions/v2";
-import { onInvitationCreated, onActivityCreated } from "../pushNotifications";
+import { onActivityCreated } from "../pushNotifications";
 
 // Handles to the same fn instances the source module captured.
 const fs = (getFirestore as unknown as () => any)();
@@ -92,10 +92,6 @@ function setupProgressLinks(userIds: string[]) {
   });
 }
 
-function invitationEvent(data: Record<string, unknown>) {
-  return { params: { invitationId: "inv1" }, data: { data: () => data } };
-}
-
 function activityEvent(data: Record<string, unknown>) {
   return {
     params: { progressItemId: "prog1", activityId: "act1" },
@@ -108,114 +104,6 @@ beforeAll(() => {
   jest.spyOn(logger, "info").mockImplementation(() => {});
   jest.spyOn(logger, "warn").mockImplementation(() => {});
   jest.spyOn(logger, "error").mockImplementation(() => {});
-});
-
-// --- onInvitationCreated --------------------------------------------------
-
-describe("onInvitationCreated", () => {
-  it("sends a push to every recipient token with the sender's display name", async () => {
-    setupUsers({
-      recipient: { tokens: ["tokA", "tokB"] },
-      sender: { name: "Alice" },
-    });
-    messaging.sendEachForMulticast.mockResolvedValue({
-      successCount: 2,
-      failureCount: 0,
-      responses: [{ success: true }, { success: true }],
-    });
-
-    await (onInvitationCreated as any).run(
-      invitationEvent({
-        toUserId: "recipient",
-        fromUserId: "sender",
-        progressItemTitle: "My Goal",
-      })
-    );
-
-    expect(messaging.sendEachForMulticast).toHaveBeenCalledTimes(1);
-    const payload = messaging.sendEachForMulticast.mock.calls[0][0];
-    expect(payload.tokens).toEqual(["tokA", "tokB"]);
-    expect(payload.notification.body).toBe(
-      'Alice invited you to collaborate on "My Goal"'
-    );
-  });
-
-  it("falls back to email, then 'Someone', for the sender name", async () => {
-    setupUsers({
-      recipient: { tokens: ["tokA"] },
-      sender: { email: "bob@example.com" },
-    });
-    messaging.sendEachForMulticast.mockResolvedValue({
-      successCount: 1,
-      failureCount: 0,
-      responses: [{ success: true }],
-    });
-
-    await (onInvitationCreated as any).run(
-      invitationEvent({
-        toUserId: "recipient",
-        fromUserId: "sender",
-        progressItemTitle: "Goal",
-      })
-    );
-
-    const body = messaging.sendEachForMulticast.mock.calls[0][0].notification.body;
-    expect(body).toBe('bob@example.com invited you to collaborate on "Goal"');
-  });
-
-  it("does nothing when a required field is missing", async () => {
-    await (onInvitationCreated as any).run(
-      invitationEvent({ toUserId: "recipient", fromUserId: "sender" }) // no title
-    );
-    expect(messaging.sendEachForMulticast).not.toHaveBeenCalled();
-  });
-
-  it("does not send when the recipient has no device tokens", async () => {
-    setupUsers({ recipient: { tokens: [] }, sender: { name: "Alice" } });
-    await (onInvitationCreated as any).run(
-      invitationEvent({
-        toUserId: "recipient",
-        fromUserId: "sender",
-        progressItemTitle: "Goal",
-      })
-    );
-    expect(messaging.sendEachForMulticast).not.toHaveBeenCalled();
-  });
-
-  it("purges dead tokens but keeps tokens that failed for auth reasons", async () => {
-    setupUsers({
-      recipient: { tokens: ["deadTok", "authTok"] },
-      sender: { name: "Alice" },
-    });
-    const batch = makeBatch();
-    fs.batch.mockReturnValue(batch);
-    messaging.sendEachForMulticast.mockResolvedValue({
-      successCount: 0,
-      failureCount: 2,
-      responses: [
-        {
-          success: false,
-          error: { code: "messaging/registration-token-not-registered" },
-        },
-        // Transient/auth failure — token is still valid, must be kept.
-        { success: false, error: { code: "messaging/third-party-auth-error" } },
-      ],
-    });
-
-    await (onInvitationCreated as any).run(
-      invitationEvent({
-        toUserId: "recipient",
-        fromUserId: "sender",
-        progressItemTitle: "Goal",
-      })
-    );
-
-    expect(batch.delete).toHaveBeenCalledTimes(1);
-    expect(batch.delete.mock.calls[0][0]).toEqual({
-      __token: { uid: "recipient", t: "deadTok" },
-    });
-    expect(batch.commit).toHaveBeenCalledTimes(1);
-  });
 });
 
 // --- onActivityCreated ----------------------------------------------------

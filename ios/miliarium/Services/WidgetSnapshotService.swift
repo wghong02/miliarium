@@ -110,11 +110,12 @@ final class WidgetSnapshotService {
     private func rebuildUpcomingSnapshot() {
         let now = Date()
         let items = contexts
-            .flatMap { (_, ctx) -> [UpcomingSnapshot.Item] in
+            .flatMap { (progressId, ctx) -> [UpcomingSnapshot.Item] in
                 ctx.activities.compactMap { activity in
                     guard let ts = activity.timestamp, ts > now else { return nil }
                     return UpcomingSnapshot.Item(
                         id: activity.id,
+                        progressItemId: progressId,
                         title: activity.title,
                         progressTitle: ctx.title,
                         timestamp: ts,
@@ -134,14 +135,14 @@ final class WidgetSnapshotService {
     private func rebuildNearbySnapshot() {
         let center = locationService.lastKnownCoordinate
 
-        let allLocatedIncomplete: [(activity: Activity, progressTitle: String)] = contexts
-            .flatMap { (_, ctx) -> [(Activity, String)] in
+        let allLocatedIncomplete: [(activity: Activity, progressTitle: String, progressId: String)] = contexts
+            .flatMap { (progressId, ctx) -> [(Activity, String, String)] in
                 ctx.activities.compactMap { activity in
                     // Must have a location, and must not be marked done.
                     // (`isCompleted == nil` and `isCompleted == false` both pass.)
                     guard activity.hasLocation,
                           activity.isCompleted != true else { return nil }
-                    return (activity, ctx.title)
+                    return (activity, ctx.title, progressId)
                 }
             }
 
@@ -149,18 +150,19 @@ final class WidgetSnapshotService {
         if let center {
             let centerLoc = CLLocation(latitude: center.latitude, longitude: center.longitude)
             items = allLocatedIncomplete
-                .map { (activity, progressTitle) -> (Activity, String, Double) in
+                .map { (activity, progressTitle, progressId) -> (Activity, String, String, Double) in
                     let aLoc = CLLocation(
                         latitude: activity.latitude ?? 0,
                         longitude: activity.longitude ?? 0
                     )
-                    return (activity, progressTitle, centerLoc.distance(from: aLoc))
+                    return (activity, progressTitle, progressId, centerLoc.distance(from: aLoc))
                 }
-                .sorted { $0.2 < $1.2 }
+                .sorted { $0.3 < $1.3 }
                 .prefix(Self.nearbyItemLimit)
-                .map { (activity, progressTitle, _) in
+                .map { (activity, progressTitle, progressId, _) in
                     NearbySnapshot.Item(
                         id: activity.id,
+                        progressItemId: progressId,
                         title: activity.title,
                         progressTitle: progressTitle,
                         latitude: activity.latitude ?? 0,
